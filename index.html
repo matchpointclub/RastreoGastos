@@ -15,10 +15,11 @@
     </button>
     <div>
       <p class="eyebrow" id="pageEyebrow">Tu ahorro</p>
-      <h1 id="pageTitle">Mis gastos</h1>
+      <h1 id="pageTitle">Ahorros</h1>
     </div>
     <nav id="navMenu" class="nav-menu" hidden>
-      <button class="nav-item active" data-view="gastos">Gastos</button>
+      <button class="nav-item active" data-view="ahorros">Ahorros</button>
+      <button class="nav-item" data-view="gastosmes">Gastos</button>
       <button class="nav-item" data-view="cotizaciones">Cotizaciones</button>
     </nav>
   </div>
@@ -119,26 +120,35 @@
   </div>
   </section>
 
-  <section id="view-gastos" class="view">
+  <section id="view-ahorros" class="view">
     <div class="wallets">
       <div class="wallet-card wallet-ars">
         <span class="wallet-label">Pesos ahorrados</span>
         <span class="wallet-value" id="totalArs">$ 0</span>
         <div class="wallet-sub">
-          <span>Ingresos <b id="ingresosArs" class="ing">$ 0</b></span>
-          <span>Egresos <b id="egresosArs" class="egr">$ 0</b></span>
+          <span>Ingresos (30d) <b id="ingresosArs" class="ing">$ 0</b></span>
+          <span>Egresos (30d) <b id="egresosArs" class="egr">$ 0</b></span>
         </div>
       </div>
       <div class="wallet-card wallet-usd">
         <span class="wallet-label">Dólares en cartera</span>
         <span class="wallet-value" id="totalUsd">US$ 0</span>
         <div class="wallet-sub">
-          <span>Compras <b id="ingresosUsd" class="ing">US$ 0</b></span>
-          <span>Ventas <b id="egresosUsd" class="egr">US$ 0</b></span>
+          <span>Compras (30d) <b id="ingresosUsd" class="ing">US$ 0</b></span>
+          <span>Ventas (30d) <b id="egresosUsd" class="egr">US$ 0</b></span>
         </div>
       </div>
     </div>
     <p class="gastos-usd" id="gastosCombinado"></p>
+
+    <p class="section-title">Evolución (últimos 60 días)</p>
+    <div class="chart-wrap">
+      <div class="legend">
+        <span><span class="dot" style="background:#d9a441"></span>Pesos</span>
+        <span><span class="dot" style="background:#3fb897"></span>Dólares</span>
+      </div>
+      <canvas id="ahorrosChart" role="img" aria-label="Gráfico de evolución de tus ahorros en pesos y en dólares en los últimos 60 días">Cargando datos del gráfico.</canvas>
+    </div>
 
     <form id="gastoForm" class="gasto-form">
       <div class="gasto-toggle-row">
@@ -169,9 +179,65 @@
       <input type="file" id="importFile" accept="application/json" hidden>
     </div>
     <p class="foot-note">
-      Estos datos se guardan solo en este navegador y este dispositivo — no se sincronizan solos
-      entre tu celular y tu compu. Para pasarlos de uno a otro, exportá acá un archivo y luego
-      importalo en el otro dispositivo (mandándotelo por mail, Drive, WhatsApp, etc.).
+      Estos movimientos se guardan en la nube (Firebase) y se sincronizan automáticamente entre
+      todos tus dispositivos. Los botones de exportar/importar son para hacer un backup manual
+      en un archivo aparte, no para pasar datos entre dispositivos.
+    </p>
+  </section>
+
+  <section id="view-gastosmes" class="view" hidden>
+    <div class="wallets">
+      <div class="wallet-card wallet-ars">
+        <span class="wallet-label">Balance en pesos</span>
+        <span class="wallet-value" id="totalArsMes">$ 0</span>
+        <div class="wallet-sub">
+          <span>Ingresos (30d) <b id="ingresosArsMes" class="ing">$ 0</b></span>
+          <span>Gastos (30d) <b id="egresosArsMes" class="egr">$ 0</b></span>
+        </div>
+      </div>
+      <div class="wallet-card wallet-usd">
+        <span class="wallet-label">Balance en dólares</span>
+        <span class="wallet-value" id="totalUsdMes">US$ 0</span>
+        <div class="wallet-sub">
+          <span>Ingresos (30d) <b id="ingresosUsdMes" class="ing">US$ 0</b></span>
+          <span>Gastos (30d) <b id="egresosUsdMes" class="egr">US$ 0</b></span>
+        </div>
+      </div>
+    </div>
+    <p class="gastos-usd" id="gastosCombinadoMes"></p>
+
+    <form id="gastoFormMes" class="gasto-form">
+      <div class="gasto-toggle-row">
+        <div class="gasto-type-toggle" id="gastoMonedaToggleMes">
+          <button type="button" class="type-btn moneda active" data-moneda="ARS">Pesos</button>
+          <button type="button" class="type-btn moneda" data-moneda="USD">Dólares</button>
+        </div>
+        <div class="gasto-type-toggle" id="gastoTypeToggleMes">
+          <button type="button" class="type-btn active" data-type="ingreso">+ Ingreso</button>
+          <button type="button" class="type-btn" data-type="egreso">− Gasto</button>
+        </div>
+      </div>
+      <input type="text" id="gastoDescMes" placeholder="Descripción (ej. Sueldo, Supermercado, Alquiler)" required>
+      <div class="gasto-row">
+        <input type="number" id="gastoMontoMes" placeholder="Monto" min="0" step="any" required>
+        <input type="date" id="gastoFechaMes">
+      </div>
+      <button type="submit" class="primary">Agregar movimiento</button>
+    </form>
+
+    <div class="gasto-list" id="gastoListMes">
+      <p class="log-empty">Todavía no cargaste movimientos.</p>
+    </div>
+
+    <div class="backup-row">
+      <button class="ghost" id="exportBtnMes">Exportar datos</button>
+      <button class="ghost" id="importBtnMes">Importar datos</button>
+      <input type="file" id="importFileMes" accept="application/json" hidden>
+    </div>
+    <p class="foot-note">
+      Cargá acá tu ingreso mensual y tus gastos del mes para ver cuánto te va quedando. Es una
+      billetera totalmente separada de tus Ahorros: nada de lo que registres acá afecta el total
+      que ves en esa sección. Se guarda en la nube (Firebase) y se sincroniza entre tus dispositivos.
     </p>
   </section>
 </div>
