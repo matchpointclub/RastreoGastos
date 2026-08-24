@@ -18,13 +18,14 @@
   const LIVE_BLUE_URL = 'https://dolarapi.com/v1/dolares/blue';
   const RIESGO_PAIS_URL = 'https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais/ultimo';
   const POLL_MS = 15 * 60 * 1000;
-  const INTRADAY_PREFIX = 'dolar-tracker:intraday:';
+  const LOG_KEY = 'dolar-tracker:cotiz-log';
+  const LOG_MAX_AGE_MS = 26 * 60 * 60 * 1000; // guardamos un poco más de 24hs de margen
 
   let oficialData = [];
   let blueData = [];
   let liveOficial = null;
   let liveBlue = null;
-  let currentRange = 'hoy';
+  let currentRange = 'ultimas24h';
   let chart = null;
   let thresholds = { ofMin:'', ofMax:'', blMin:'', blMax:'', gapPct:'' };
   let notifGranted = false;
@@ -45,35 +46,33 @@
     return fecha >= cutoff;
   }
 
-  function recordIntradaySnapshot(ofVenta, blVenta){
-    const key = INTRADAY_PREFIX + todayKey();
-    let day = {};
+  function readLog(){
     try{
-      const raw = localStorage.getItem(key);
-      if(raw) day = JSON.parse(raw);
-    }catch(e){ day = {}; }
-    const hour = String(new Date().getHours()).padStart(2,'0');
-    day[hour] = { oficial: ofVenta, blue: blVenta, minute: new Date().getMinutes() };
-    try{ localStorage.setItem(key, JSON.stringify(day)); }catch(e){ /* storage llena, ignorar */ }
+      const raw = localStorage.getItem(LOG_KEY);
+      return raw ? JSON.parse(raw) : [];
+    }catch(e){ return []; }
   }
 
-  function getIntradaySeries(){
-    const key = INTRADAY_PREFIX + todayKey();
-    let day = {};
-    try{
-      const raw = localStorage.getItem(key);
-      if(raw) day = JSON.parse(raw);
-    }catch(e){ day = {}; }
-    const labels = [];
-    const oficial = [];
-    const blue = [];
-    for(let h = 0; h <= 23; h++){
-      const hh = String(h).padStart(2,'0');
-      labels.push(hh+':00');
-      oficial.push(day[hh] ? day[hh].oficial : null);
-      blue.push(day[hh] ? day[hh].blue : null);
-    }
-    return { labels, oficial, blue };
+  function recordSnapshot(ofVenta, blVenta){
+    let log = readLog();
+    const now = Date.now();
+    log.push({ ts: now, oficial: ofVenta, blue: blVenta });
+    const cutoff = now - LOG_MAX_AGE_MS;
+    log = log.filter(entry => entry.ts >= cutoff);
+    try{ localStorage.setItem(LOG_KEY, JSON.stringify(log)); }catch(e){ /* storage llena, ignorar */ }
+  }
+
+  function getUltimas24hSeries(){
+    const now = Date.now();
+    const cutoff = now - 24 * 60 * 60 * 1000;
+    const recent = readLog()
+      .filter(entry => entry.ts >= cutoff)
+      .sort((a,b) => a.ts - b.ts);
+    return {
+      labels: recent.map(entry => new Date(entry.ts).toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' })),
+      oficial: recent.map(entry => entry.oficial),
+      blue: recent.map(entry => entry.blue),
+    };
   }
 
   function blueAvgRate(){
@@ -244,8 +243,8 @@
   }
 
   function renderChart(){
-    const isIntraday = currentRange === 'hoy';
-    const series = isIntraday ? getIntradaySeries() : buildSeries(currentRange);
+    const isIntraday = currentRange === 'ultimas24h';
+    const series = isIntraday ? getUltimas24hSeries() : buildSeries(currentRange);
     const ctx = document.getElementById('chart');
     if(chart) chart.destroy();
     chart = new Chart(ctx, {
@@ -318,7 +317,7 @@
     if(!ofRes.ok || !blRes.ok) throw new Error('Respuesta no válida de la API en vivo');
     liveOficial = await ofRes.json();
     liveBlue = await blRes.json();
-    recordIntradaySnapshot(liveOficial.venta, liveBlue.venta);
+    recordSnapshot(liveOficial.venta, liveBlue.venta);
   }
 
   async function fetchAll(){
@@ -341,7 +340,7 @@
     if(!btn) return;
     document.querySelectorAll('#rangeToggle button').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
-    currentRange = btn.dataset.range === 'hoy' ? 'hoy' : parseInt(btn.dataset.range, 10);
+    currentRange = btn.dataset.range === 'ultimas24h' ? 'ultimas24h' : parseInt(btn.dataset.range, 10);
     renderChart();
   });
 
@@ -372,6 +371,26 @@
   // para no perder nada de lo que ya venías cargando.
   function getSeccion(m){
     return m.seccion === 'gasto' ? 'gasto' : 'ahorro';
+  }
+
+  // Momento exacto de carga, para desempatar movimientos del mismo día.
+  // - Sin campo createdAt (movimientos viejos): se tratan como lo más antiguo.
+  // - createdAt en null (escritura recién enviada, todavía no confirmada por el
+  //   servidor): se trata como "ahora", para que aparezca arriba al instante.
+  function sortKeyMillis(m){
+    if(m.createdAt === undefined) return 0;
+    if(m.createdAt === null) return Date.now();
+    if(typeof m.createdAt.toMillis === 'function') return m.createdAt.toMillis();
+    return 0;
+  }
+
+  function ordenarMovimientos(movs){
+    return movs.slice().sort((a,b) => {
+      const fa = a.fecha || '';
+      const fb = b.fecha || '';
+      if(fa !== fb) return fb.localeCompare(fa); // fecha más reciente primero
+      return sortKeyMillis(b) - sortKeyMillis(a); // dentro del mismo día, lo cargado último primero
+    });
   }
 
   const SECCION_IDS = {
@@ -499,8 +518,10 @@
         const fecha = fechaInput.value || new Date().toISOString().slice(0,10);
         if(!desc || !monto || monto <= 0) return;
 
-        movimientosRef.add({ tipo: tipoSeleccionado, moneda: monedaSeleccionada, desc, monto, fecha, seccion: seccionKey })
-          .catch((e)=> console.error('No se pudo guardar el movimiento', e));
+        movimientosRef.add({
+          tipo: tipoSeleccionado, moneda: monedaSeleccionada, desc, monto, fecha, seccion: seccionKey,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        }).catch((e)=> console.error('No se pudo guardar el movimiento', e));
         form.reset();
         fechaInput.value = new Date().toISOString().slice(0,10);
       });
@@ -544,9 +565,12 @@
           if(!Array.isArray(data.movimientos)) throw new Error('Archivo con formato inesperado');
           const batch = db.batch();
           data.movimientos.forEach(m => {
-            const { id, seccion, ...resto } = m;
+            const { id, seccion, createdAt, ...resto } = m;
             const docRef = movimientosRef.doc();
-            batch.set(docRef, Object.assign({}, resto, { seccion: seccionKey }));
+            batch.set(docRef, Object.assign({}, resto, {
+              seccion: seccionKey,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            }));
           });
           await batch.commit();
           if(data.thresholds){
@@ -568,8 +592,9 @@
   const gastosController = crearControladorSeccion('gasto', SECCION_IDS.gasto);
 
   function initMovimientosSync(){
-    movimientosRef.orderBy('fecha','desc').onSnapshot((snapshot)=>{
-      allMovimientos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    movimientosRef.onSnapshot((snapshot)=>{
+      const movs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      allMovimientos = ordenarMovimientos(movs);
       ahorrosController.render();
       gastosController.render();
       renderAhorrosChart();

@@ -44,7 +44,7 @@
 
   <p class="section-title">Últimos días</p>
   <div class="range-toggle" id="rangeToggle">
-    <button data-range="hoy" class="active">Hoy (por hora)</button>
+    <button data-range="ultimas24h" class="active">Últimas 24 hs</button>
     <button data-range="7">7 días</button>
     <button data-range="30">30 días</button>
     <button data-range="60">60 días</button>
@@ -54,7 +54,7 @@
       <span><span class="dot" style="background:#d9a441"></span>Oficial</span>
       <span><span class="dot" style="background:#3fb897"></span>Blue</span>
     </div>
-    <canvas id="chart" role="img" aria-label="Gráfico de líneas comparando el dólar oficial y el dólar blue en los últimos días">Cargando datos del gráfico.</canvas>
+    <canvas id="chart" role="img" aria-label="Gráfico de líneas comparando el dólar oficial y el dólar blue en las últimas horas o días">Cargando datos del gráfico.</canvas>
   </div>
 
   <div class="calculator" id="calculator">
@@ -121,9 +121,10 @@
       Las alertas se revisan cada 15 minutos mientras esta página esté abierta en una pestaña
       (aunque esté de fondo). Si la cerrás, dejan de funcionar. Las notificaciones del navegador
       pueden requerir permiso explícito; si tu navegador no las permite acá, el aviso va a
-      aparecer igual como una fila en el historial de arriba. La vista "Hoy" se arma con lo que
-      esta app va registrando en vivo hora a hora — no hay datos históricos por hora disponibles,
-      así que solo vas a ver puntos desde que empezás a usarla en el día.
+      aparecer igual como una fila en el historial de arriba. La vista "Últimas 24 hs" se arma
+      con lo que esta app va registrando en vivo — no hay datos históricos por hora disponibles,
+      así que solo vas a ver puntos desde que empezás a usarla (y se guardan en este dispositivo,
+      no se sincronizan entre dispositivos).
     </p>
   </div>
   </section>
