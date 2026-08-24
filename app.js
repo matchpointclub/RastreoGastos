@@ -245,6 +245,20 @@
   function renderChart(){
     const isIntraday = currentRange === 'ultimas24h';
     const series = isIntraday ? getUltimas24hSeries() : buildSeries(currentRange);
+
+    const noteEl = document.getElementById('chartNote');
+    if(isIntraday){
+      const n = series.labels.length;
+      if(n === 0){
+        noteEl.textContent = 'Todavía no hay puntos registrados. Se va a ir completando a medida que uses la app (o cada 15 minutos si la dejás abierta).';
+      }else if(n < 6){
+        noteEl.textContent = 'Llevás ' + n + ' punto' + (n === 1 ? '' : 's') + ' registrado' + (n === 1 ? '' : 's') + ' en esta ventana de 24hs. Se va completando con el uso, no es un dato histórico ya cargado.';
+      }else{
+        noteEl.textContent = '';
+      }
+    }else{
+      noteEl.textContent = '';
+    }
     const ctx = document.getElementById('chart');
     if(chart) chart.destroy();
     chart = new Chart(ctx, {
