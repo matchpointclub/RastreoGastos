@@ -382,6 +382,7 @@
       form:'gastoForm', monedaToggle:'gastoMonedaToggle', typeToggle:'gastoTypeToggle',
       desc:'gastoDesc', monto:'gastoMonto', fecha:'gastoFecha',
       exportBtn:'exportBtn', importBtn:'importBtn', importFile:'importFile',
+      arsEquiv:'arsEquivUsd', usdEquiv:'usdEquivArs',
     },
     gasto: {
       totalArs:'totalArsMes', ingresosArs:'ingresosArsMes', egresosArs:'egresosArsMes',
@@ -429,9 +430,21 @@
       document.getElementById(ids.egresosUsd).textContent = fmtUsd(egresosUsd);
 
       const rate = blueAvgRate();
+
+      // Equivalencia cruzada: cuánto valen los pesos en dólares y viceversa,
+      // al tipo de cambio blue promedio de hoy.
+      if(ids.arsEquiv){
+        const arsEquivEl = document.getElementById(ids.arsEquiv);
+        if(arsEquivEl) arsEquivEl.textContent = rate ? '≈ ' + fmtUsd(totalArs / rate) : '';
+      }
+      if(ids.usdEquiv){
+        const usdEquivEl = document.getElementById(ids.usdEquiv);
+        if(usdEquivEl) usdEquivEl.textContent = rate ? '≈ ' + fmt(totalUsd * rate) : '';
+      }
+
       const combinadoEl = document.getElementById(ids.combinado);
       combinadoEl.textContent = rate
-        ? 'Combinado (pesos + dólares al blue promedio): ' + fmt(totalArs + totalUsd * rate)
+        ? 'Total ahorrado (pesos + dólares al blue promedio): ' + fmt(totalArs + totalUsd * rate)
         : '';
 
       const list = document.getElementById(ids.list);

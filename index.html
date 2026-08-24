@@ -6,6 +6,14 @@
 <title>Pizarra — Dólar AR</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2314171c'/%3E%3Ctext x='32' y='44' font-family='Georgia,serif' font-size='38' font-weight='bold' text-anchor='middle' fill='%23d9a441'%3E%24%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<style>
+  .wallet-equiv{
+    display:block;
+    font-size:0.8rem;
+    color:#9a9689;
+    margin-top:2px;
+  }
+</style>
 </head>
 <body>
 <div id="app">
@@ -125,6 +133,7 @@
       <div class="wallet-card wallet-ars">
         <span class="wallet-label">Pesos ahorrados</span>
         <span class="wallet-value" id="totalArs">$ 0</span>
+        <span class="wallet-equiv" id="arsEquivUsd"></span>
         <div class="wallet-sub">
           <span>Ingresos (30d) <b id="ingresosArs" class="ing">$ 0</b></span>
           <span>Egresos (30d) <b id="egresosArs" class="egr">$ 0</b></span>
@@ -133,6 +142,7 @@
       <div class="wallet-card wallet-usd">
         <span class="wallet-label">Dólares en cartera</span>
         <span class="wallet-value" id="totalUsd">US$ 0</span>
+        <span class="wallet-equiv" id="usdEquivArs"></span>
         <div class="wallet-sub">
           <span>Compras (30d) <b id="ingresosUsd" class="ing">US$ 0</b></span>
           <span>Ventas (30d) <b id="egresosUsd" class="egr">US$ 0</b></span>
@@ -245,6 +255,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
 <script src="app.js"></script>
 </body>
 </html>
