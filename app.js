@@ -22,7 +22,6 @@
   const POLL_MS = 15 * 60 * 1000;
   const LOG_KEY = 'dolar-tracker:cotiz-log';
   const LOG_MAX_AGE_MS = 26 * 60 * 60 * 1000; // guardamos un poco más de 24hs de margen
-  const STOCK_ALERT_LOG_KEY = 'dolar-tracker:stock-alertas';
 
   let oficialData = [];
   let blueData = [];
@@ -185,11 +184,19 @@
     }
   }
 
-  function logAlert(msg){
-    alertasRef.add({
+  function logAlert(msg, dedupeKey){
+    const payload = {
       mensaje: msg,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-    }).catch((e)=> console.error('No se pudo guardar la alerta', e));
+    };
+    if(dedupeKey){
+      payload.dedupeKey = dedupeKey;
+      // set() con el dedupeKey como ID: si dos pestañas chequean casi al mismo
+      // tiempo, ambas escriben al mismo documento en vez de crear uno cada una.
+      alertasRef.doc(dedupeKey).set(payload).catch((e)=> console.error('No se pudo guardar la alerta', e));
+    }else{
+      alertasRef.add(payload).catch((e)=> console.error('No se pudo guardar la alerta', e));
+    }
   }
 
   function renderAlertas(){
@@ -248,11 +255,11 @@
     });
   }
 
-  function notify(title, body){
+  function notify(title, body, dedupeKey){
     if('Notification' in window && Notification.permission === 'granted'){
       if(swRegistration && swRegistration.showNotification){
         // Método compatible con Android: requiere un service worker registrado.
-        swRegistration.showNotification(title, { body, tag: title }).catch(()=>{
+        swRegistration.showNotification(title, { body }).catch(()=>{
           try{ new Notification(title, { body }); }catch(e){ /* solo queda el historial */ }
         });
       }else{
@@ -260,7 +267,7 @@
         try{ new Notification(title, { body }); }catch(e){ /* solo queda el historial */ }
       }
     }
-    logAlert(body);
+    logAlert(body, dedupeKey);
   }
 
   function checkThresholds(ofVenta, blVenta){
@@ -286,13 +293,6 @@
     }
   }
 
-  function readStockAlertLog(){
-    try{
-      const raw = localStorage.getItem(STOCK_ALERT_LOG_KEY);
-      return raw ? JSON.parse(raw) : {};
-    }catch(e){ return {}; }
-  }
-
   function diasEnStockDe(producto){
     if(!producto || !producto.fechaCompra) return null;
     const hoy = new Date(); hoy.setHours(0,0,0,0);
@@ -300,27 +300,24 @@
     return Math.floor((hoy - fCompra) / (24*60*60*1000));
   }
 
-  // Avisa como máximo una vez por día por artículo, para no repetir el mismo
-  // aviso cada 15 minutos mientras el artículo siga sin venderse.
+  // Avisa como máximo una vez por día por artículo. El "ya avisé hoy" se guarda
+  // en Firebase (no en localStorage) usando el dedupeKey como ID del documento,
+  // para que no se duplique entre pestañas o dispositivos distintos.
   function checkStockEstancado(){
     const limite = parseInt(thresholds.stockDiasAlerta, 10);
     if(!limite || limite <= 0) return;
-    const alertLog = readStockAlertLog();
     const hoyKey = todayKey();
-    let cambiado = false;
     allProductos
       .filter(p => p.estado !== 'vendido')
       .forEach(p => {
         const dias = diasEnStockDe(p);
-        if(dias != null && dias >= limite && alertLog[p.id] !== hoyKey){
-          notify('Stock estancado', '"'+p.nombre+'" lleva '+dias+' día'+(dias===1?'':'s')+' en stock sin vender.');
-          alertLog[p.id] = hoyKey;
-          cambiado = true;
+        if(dias == null || dias < limite) return;
+        const dedupeKey = 'stock_' + p.id + '_' + hoyKey;
+        const yaAvisado = allAlertas.some(a => a.dedupeKey === dedupeKey);
+        if(!yaAvisado){
+          notify('Stock estancado', '"'+p.nombre+'" lleva '+dias+' día'+(dias===1?'':'s')+' en stock sin vender.', dedupeKey);
         }
       });
-    if(cambiado){
-      try{ localStorage.setItem(STOCK_ALERT_LOG_KEY, JSON.stringify(alertLog)); }catch(e){ /* storage llena, ignorar */ }
-    }
   }
 
   function renderBoards(){
