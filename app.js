@@ -414,15 +414,20 @@
 
   function updateNotifStatusText(){
     const statusEl = document.getElementById('notifStatus');
+    const btn = document.getElementById('enableNotif');
     if(!statusEl) return;
     if(!('Notification' in window)){
       statusEl.textContent = 'Notificaciones: no disponibles en este navegador';
+      if(btn) btn.setAttribute('hidden','');
     }else if(Notification.permission === 'granted'){
-      statusEl.textContent = 'Notificaciones: activas';
+      statusEl.textContent = 'Notificaciones: activas. Para desactivarlas, hacelo desde la configuración de notificaciones del sitio en tu navegador (no se puede desde acá).';
+      if(btn) btn.setAttribute('hidden','');
     }else if(Notification.permission === 'denied'){
-      statusEl.textContent = 'Notificaciones: bloqueadas por el navegador (para reactivarlas hay que habilitarlas a mano en la configuración del sitio, no alcanza con tocar el botón)';
+      statusEl.textContent = 'Notificaciones: bloqueadas por el navegador. Para activarlas, habilitalas a mano en la configuración del sitio (tocar el botón no alcanza).';
+      if(btn) btn.setAttribute('hidden','');
     }else{
       statusEl.textContent = 'Notificaciones: sin activar';
+      if(btn) btn.removeAttribute('hidden');
     }
   }
 
