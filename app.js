@@ -10,6 +10,7 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
   const movimientosRef = db.collection('movimientos');
+  const productosRef = db.collection('productos');
   const settingsRef = db.collection('settings').doc('thresholds');
 
   const OFICIAL_URL = 'https://api.argentinadatos.com/v1/cotizaciones/dolares/oficial';
@@ -20,6 +21,7 @@
   const POLL_MS = 15 * 60 * 1000;
   const LOG_KEY = 'dolar-tracker:cotiz-log';
   const LOG_MAX_AGE_MS = 26 * 60 * 60 * 1000; // guardamos un poco más de 24hs de margen
+  const STOCK_ALERT_LOG_KEY = 'dolar-tracker:stock-alertas';
 
   let oficialData = [];
   let blueData = [];
@@ -27,7 +29,7 @@
   let liveBlue = null;
   let currentRange = 'ultimas24h';
   let chart = null;
-  let thresholds = { ofMin:'', ofMax:'', blMin:'', blMax:'', gapPct:'' };
+  let thresholds = { ofMin:'', ofMax:'', blMin:'', blMax:'', gapPct:'', stockDiasAlerta:'' };
   let notifGranted = false;
 
   const fmt = (n) => n == null ? '—' : n.toLocaleString('es-AR', { style:'currency', currency:'ARS', minimumFractionDigits:0, maximumFractionDigits:0 });
@@ -134,6 +136,8 @@
     document.getElementById('blMin').value = thresholds.blMin || '';
     document.getElementById('blMax').value = thresholds.blMax || '';
     document.getElementById('gapPct').value = thresholds.gapPct || '';
+    const stockDiasEl = document.getElementById('stockDiasAlerta');
+    if(stockDiasEl) stockDiasEl.value = thresholds.stockDiasAlerta || '';
   }
 
   function initThresholdsSync(){
@@ -141,6 +145,7 @@
       if(doc.exists){
         thresholds = Object.assign(thresholds, doc.data());
         applyThresholdsToInputs();
+        renderStock();
       }
     }, (err)=> console.error('Error sincronizando umbrales', err));
   }
@@ -152,13 +157,17 @@
       blMin: document.getElementById('blMin').value,
       blMax: document.getElementById('blMax').value,
       gapPct: document.getElementById('gapPct').value,
+      stockDiasAlerta: document.getElementById('stockDiasAlerta') ? document.getElementById('stockDiasAlerta').value : (thresholds.stockDiasAlerta || ''),
     };
     settingsRef.set(thresholds)
       .then(()=>{
-        const btn = document.getElementById('saveThresholds');
-        const original = btn.textContent;
-        btn.textContent = 'Guardado';
-        setTimeout(()=>{ btn.textContent = original; }, 1500);
+        ['saveThresholds','saveStockDias'].forEach(btnId=>{
+          const btn = document.getElementById(btnId);
+          if(!btn) return;
+          const original = btn.textContent;
+          btn.textContent = 'Guardado';
+          setTimeout(()=>{ btn.textContent = original; }, 1500);
+        });
       })
       .catch((e)=> console.error('No se pudieron guardar los umbrales', e));
   }
@@ -200,6 +209,43 @@
         const direccion = gap > 0 ? 'más alto que' : 'más bajo que';
         notify('Brecha oficial/blue', 'El oficial quedó '+Math.abs(gap).toFixed(1)+'% '+direccion+' el blue');
       }
+    }
+  }
+
+  function readStockAlertLog(){
+    try{
+      const raw = localStorage.getItem(STOCK_ALERT_LOG_KEY);
+      return raw ? JSON.parse(raw) : {};
+    }catch(e){ return {}; }
+  }
+
+  function diasEnStockDe(producto){
+    if(!producto || !producto.fechaCompra) return null;
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    const fCompra = new Date(producto.fechaCompra + 'T00:00:00');
+    return Math.floor((hoy - fCompra) / (24*60*60*1000));
+  }
+
+  // Avisa como máximo una vez por día por artículo, para no repetir el mismo
+  // aviso cada 15 minutos mientras el artículo siga sin venderse.
+  function checkStockEstancado(){
+    const limite = parseInt(thresholds.stockDiasAlerta, 10);
+    if(!limite || limite <= 0) return;
+    const alertLog = readStockAlertLog();
+    const hoyKey = todayKey();
+    let cambiado = false;
+    allProductos
+      .filter(p => p.estado !== 'vendido')
+      .forEach(p => {
+        const dias = diasEnStockDe(p);
+        if(dias != null && dias >= limite && alertLog[p.id] !== hoyKey){
+          notify('Stock estancado', '"'+p.nombre+'" lleva '+dias+' día'+(dias===1?'':'s')+' en stock sin vender.');
+          alertLog[p.id] = hoyKey;
+          cambiado = true;
+        }
+      });
+    if(cambiado){
+      try{ localStorage.setItem(STOCK_ALERT_LOG_KEY, JSON.stringify(alertLog)); }catch(e){ /* storage llena, ignorar */ }
     }
   }
 
@@ -342,7 +388,10 @@
       refreshCalculator();
       ahorrosController.render();
       gastosController.render();
+      negocioController.render();
+      renderNegocioChart();
       if(liveOficial && liveBlue) checkThresholds(liveOficial.venta, liveBlue.venta);
+      checkStockEstancado();
     }catch(e){
       document.getElementById('boards').innerHTML = '<div class="err">No se pudo obtener la cotización ahora. Reintentá en un momento.</div>';
       console.error(e);
@@ -359,6 +408,7 @@
   });
 
   document.getElementById('saveThresholds').addEventListener('click', saveThresholds);
+  document.getElementById('saveStockDias').addEventListener('click', saveThresholds);
 
   document.getElementById('enableNotif').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('notifStatus');
@@ -384,7 +434,9 @@
   // Los movimientos viejos no tienen campo "seccion": se tratan como "ahorro"
   // para no perder nada de lo que ya venías cargando.
   function getSeccion(m){
-    return m.seccion === 'gasto' ? 'gasto' : 'ahorro';
+    if(m.seccion === 'gasto') return 'gasto';
+    if(m.seccion === 'negocio') return 'negocio';
+    return 'ahorro';
   }
 
   // Momento exacto de carga, para desempatar movimientos del mismo día.
@@ -424,6 +476,15 @@
       form:'gastoFormMes', monedaToggle:'gastoMonedaToggleMes', typeToggle:'gastoTypeToggleMes',
       desc:'gastoDescMes', monto:'gastoMontoMes', fecha:'gastoFechaMes',
       exportBtn:'exportBtnMes', importBtn:'importBtnMes', importFile:'importFileMes',
+    },
+    negocio: {
+      totalArs:'totalArsNeg', ingresosArs:'ingresosArsNeg', egresosArs:'egresosArsNeg',
+      totalUsd:'totalUsdNeg', ingresosUsd:'ingresosUsdNeg', egresosUsd:'egresosUsdNeg',
+      combinado:'gastosCombinadoNeg', list:'gastoListNeg',
+      form:'gastoFormNeg', monedaToggle:'gastoMonedaToggleNeg', typeToggle:'gastoTypeToggleNeg',
+      desc:'gastoDescNeg', monto:'gastoMontoNeg', fecha:'gastoFechaNeg',
+      exportBtn:'exportBtnNeg', importBtn:'importBtnNeg', importFile:'importFileNeg',
+      arsEquiv:'arsEquivUsdNeg', usdEquiv:'usdEquivArsNeg',
     },
   };
 
@@ -604,6 +665,246 @@
 
   const ahorrosController = crearControladorSeccion('ahorro', SECCION_IDS.ahorro);
   const gastosController = crearControladorSeccion('gasto', SECCION_IDS.gasto);
+  const negocioController = crearControladorSeccion('negocio', SECCION_IDS.negocio);
+
+  // ---------- Reventa: stock de artículos (paletas, bolsos, zapatillas, accesorios) ----------
+
+  let allProductos = [];
+  let productoMonedaSeleccionada = 'ARS';
+  let ventaProductoId = null;
+
+  function ordenarProductos(items){
+    return items.slice().sort((a,b) => {
+      const fa = a.fechaCompra || '';
+      const fb = b.fechaCompra || '';
+      if(fa !== fb) return fb.localeCompare(fa);
+      return sortKeyMillis(b) - sortKeyMillis(a);
+    });
+  }
+
+  function renderStock(){
+    const enStock = allProductos.filter(p => p.estado !== 'vendido');
+    const vendidos = allProductos.filter(p => p.estado === 'vendido');
+
+    const sumBy = (arr, moneda, field) => arr
+      .filter(p => p.moneda === moneda)
+      .reduce((s,p) => s + (p[field] || 0), 0);
+
+    const stockArs = sumBy(enStock, 'ARS', 'costo');
+    const stockUsd = sumBy(enStock, 'USD', 'costo');
+
+    const gananciaArs = vendidos
+      .filter(p => p.moneda === 'ARS')
+      .reduce((s,p) => s + ((p.precioVenta || 0) - (p.costo || 0)), 0);
+    const gananciaUsd = vendidos
+      .filter(p => p.moneda === 'USD')
+      .reduce((s,p) => s + ((p.precioVenta || 0) - (p.costo || 0)), 0);
+
+    const stockInvertidoEl = document.getElementById('stockInvertido');
+    if(stockInvertidoEl){
+      stockInvertidoEl.textContent = 'Invertido en stock actual: ' + fmt(stockArs) + ' + ' + fmtUsd(stockUsd);
+    }
+    const gananciaEl = document.getElementById('gananciaRealizada');
+    if(gananciaEl){
+      gananciaEl.textContent = 'Ganancia realizada (vendido): ' + fmt(gananciaArs) + ' + ' + fmtUsd(gananciaUsd);
+    }
+
+    const stockListEl = document.getElementById('stockList');
+    if(stockListEl){
+      if(enStock.length === 0){
+        stockListEl.innerHTML = '<p class="log-empty">Todavía no cargaste artículos en stock.</p>';
+      }else{
+        const limiteDias = parseInt(thresholds.stockDiasAlerta, 10);
+        stockListEl.innerHTML = enStock.map(p => {
+          const montoFmt = p.moneda === 'USD' ? fmtUsd(p.costo) : fmt(p.costo);
+          const dias = diasEnStockDe(p);
+          let diasTexto = '';
+          if(dias != null){
+            const diasLabel = dias+' día'+(dias===1?'':'s')+' en stock';
+            const estancado = limiteDias && dias >= limiteDias;
+            diasTexto = ' · ' + (estancado ? '<span class="egr">'+diasLabel+'</span>' : diasLabel);
+          }
+          return '<div class="gasto-item egreso" data-id="'+p.id+'">'
+            + '<div class="gasto-item-info">'
+            +   '<span class="gasto-item-desc">'+p.nombre+' <span class="gasto-item-moneda">'+p.moneda+'</span></span>'
+            +   '<span class="gasto-item-date">Comprado '+(p.fechaCompra||'')+' · Costo '+montoFmt+diasTexto+'</span>'
+            + '</div>'
+            + '<div class="gasto-item-actions">'
+            +   '<button type="button" class="ghost vender-btn" data-id="'+p.id+'">Vender</button>'
+            +   '<button type="button" class="gasto-delete" data-id="'+p.id+'" aria-label="Eliminar artículo">✕</button>'
+            + '</div>'
+            + '</div>';
+        }).join('');
+      }
+    }
+
+    const vendidosListEl = document.getElementById('vendidosList');
+    if(vendidosListEl){
+      if(vendidos.length === 0){
+        vendidosListEl.innerHTML = '<p class="log-empty">Todavía no vendiste nada.</p>';
+      }else{
+        vendidosListEl.innerHTML = vendidos.map(p => {
+          const costoFmt = p.moneda === 'USD' ? fmtUsd(p.costo) : fmt(p.costo);
+          const ventaFmt = p.moneda === 'USD' ? fmtUsd(p.precioVenta || 0) : fmt(p.precioVenta || 0);
+          const ganancia = (p.precioVenta || 0) - (p.costo || 0);
+          const gananciaFmt = p.moneda === 'USD' ? fmtUsd(Math.abs(ganancia)) : fmt(Math.abs(ganancia));
+          const sign = ganancia >= 0 ? '+' : '−';
+          return '<div class="gasto-item ingreso" data-id="'+p.id+'">'
+            + '<div class="gasto-item-info">'
+            +   '<span class="gasto-item-desc">'+p.nombre+' <span class="gasto-item-moneda">'+p.moneda+'</span></span>'
+            +   '<span class="gasto-item-date">Vendido '+(p.fechaVenta||'')+' · '+costoFmt+' → '+ventaFmt+'</span>'
+            + '</div>'
+            + '<div class="gasto-item-actions">'
+            +   '<span class="gasto-item-amount">'+sign+' '+gananciaFmt+'</span>'
+            +   '<button type="button" class="gasto-delete" data-id="'+p.id+'" aria-label="Eliminar artículo">✕</button>'
+            + '</div>'
+            + '</div>';
+        }).join('');
+      }
+    }
+  }
+
+  function initProductosSync(){
+    productosRef.onSnapshot((snapshot)=>{
+      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      allProductos = ordenarProductos(items);
+      renderStock();
+    }, (err)=> console.error('Error sincronizando productos', err));
+  }
+
+  async function eliminarProducto(id){
+    const p = allProductos.find(x => x.id === id);
+    if(!p) return;
+    const incluyeVenta = p.estado === 'vendido';
+    const confirmado = window.confirm(
+      '¿Eliminar "'+p.nombre+'"? Esto también borra el/los movimiento(s) de caja asociados (compra'
+      + (incluyeVenta ? ' y venta' : '') + ').'
+    );
+    if(!confirmado) return;
+    try{
+      const batch = db.batch();
+      if(p.movCompraId) batch.delete(movimientosRef.doc(p.movCompraId));
+      if(p.movVentaId) batch.delete(movimientosRef.doc(p.movVentaId));
+      batch.delete(productosRef.doc(id));
+      await batch.commit();
+    }catch(e){
+      console.error('No se pudo eliminar el artículo', e);
+    }
+  }
+
+  function initStockForm(){
+    const monedaToggle = document.getElementById('productoMonedaToggle');
+    const nombreInput = document.getElementById('productoNombre');
+    const costoInput = document.getElementById('productoCosto');
+    const fechaInput = document.getElementById('productoFecha');
+    const form = document.getElementById('productoForm');
+    if(!form) return;
+
+    fechaInput.value = new Date().toISOString().slice(0,10);
+
+    monedaToggle.addEventListener('click', (ev)=>{
+      const btn = ev.target.closest('.type-btn');
+      if(!btn) return;
+      productoMonedaSeleccionada = btn.dataset.moneda;
+      monedaToggle.querySelectorAll('.type-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      costoInput.placeholder = productoMonedaSeleccionada === 'USD' ? 'Costo en USD' : 'Costo en ARS';
+    });
+
+    form.addEventListener('submit', async (ev)=>{
+      ev.preventDefault();
+      const nombre = nombreInput.value.trim();
+      const costo = parseFloat(costoInput.value);
+      const fechaCompra = fechaInput.value || new Date().toISOString().slice(0,10);
+      if(!nombre || !costo || costo <= 0) return;
+      try{
+        const movRef = await movimientosRef.add({
+          tipo:'egreso', moneda: productoMonedaSeleccionada, desc:'Compra stock: '+nombre,
+          monto: costo, fecha: fechaCompra, seccion:'negocio',
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        await productosRef.add({
+          nombre, moneda: productoMonedaSeleccionada, costo, fechaCompra, estado:'stock',
+          movCompraId: movRef.id, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        form.reset();
+        fechaInput.value = new Date().toISOString().slice(0,10);
+        productoMonedaSeleccionada = 'ARS';
+        monedaToggle.querySelectorAll('.type-btn').forEach(b=>b.classList.remove('active'));
+        monedaToggle.querySelector('[data-moneda="ARS"]').classList.add('active');
+        costoInput.placeholder = 'Costo';
+      }catch(e){
+        console.error('No se pudo agregar el artículo', e);
+      }
+    });
+  }
+
+  function initVentaPanel(){
+    const stockListEl = document.getElementById('stockList');
+    const vendidosListEl = document.getElementById('vendidosList');
+    const panel = document.getElementById('ventaPanel');
+    const panelNombre = document.getElementById('ventaPanelNombre');
+    const precioInput = document.getElementById('ventaPrecio');
+    const fechaInput = document.getElementById('ventaFecha');
+    const confirmarBtn = document.getElementById('ventaConfirmar');
+    const cancelarBtn = document.getElementById('ventaCancelar');
+    if(!stockListEl || !panel) return;
+
+    function cerrarPanel(){
+      ventaProductoId = null;
+      panel.setAttribute('hidden','');
+    }
+
+    stockListEl.addEventListener('click', (ev)=>{
+      const venderBtn = ev.target.closest('.vender-btn');
+      if(venderBtn){
+        const p = allProductos.find(x => x.id === venderBtn.dataset.id);
+        if(!p) return;
+        ventaProductoId = p.id;
+        const costoFmt = p.moneda === 'USD' ? fmtUsd(p.costo) : fmt(p.costo);
+        panelNombre.textContent = p.nombre + ' (' + p.moneda + ') · costo ' + costoFmt;
+        precioInput.value = '';
+        fechaInput.value = new Date().toISOString().slice(0,10);
+        panel.removeAttribute('hidden');
+        precioInput.focus();
+        return;
+      }
+      const delBtn = ev.target.closest('.gasto-delete');
+      if(delBtn) eliminarProducto(delBtn.dataset.id);
+    });
+
+    vendidosListEl.addEventListener('click', (ev)=>{
+      const delBtn = ev.target.closest('.gasto-delete');
+      if(delBtn) eliminarProducto(delBtn.dataset.id);
+    });
+
+    cancelarBtn.addEventListener('click', cerrarPanel);
+
+    confirmarBtn.addEventListener('click', async ()=>{
+      if(!ventaProductoId) return;
+      const p = allProductos.find(x => x.id === ventaProductoId);
+      if(!p) return;
+      const precioVenta = parseFloat(precioInput.value);
+      const fechaVenta = fechaInput.value || new Date().toISOString().slice(0,10);
+      if(precioVenta === '' || isNaN(precioVenta) || precioVenta < 0){
+        alert('Ingresá un precio de venta válido.');
+        return;
+      }
+      try{
+        const movRef = await movimientosRef.add({
+          tipo:'ingreso', moneda: p.moneda, desc:'Venta: '+p.nombre,
+          monto: precioVenta, fecha: fechaVenta, seccion:'negocio',
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        await productosRef.doc(p.id).update({
+          estado:'vendido', precioVenta, fechaVenta, movVentaId: movRef.id,
+        });
+        cerrarPanel();
+      }catch(e){
+        console.error('No se pudo registrar la venta', e);
+      }
+    });
+  }
 
   function initMovimientosSync(){
     movimientosRef.onSnapshot((snapshot)=>{
@@ -611,22 +912,34 @@
       allMovimientos = ordenarMovimientos(movs);
       ahorrosController.render();
       gastosController.render();
+      negocioController.render();
       renderAhorrosChart();
+      renderNegocioChart();
     }, (err)=> console.error('Error sincronizando movimientos', err));
   }
 
-  // ---------- Gráfico de evolución de Ahorros (últimos 60 días) ----------
+  // ---------- Gráfico de evolución de Ahorros (60 días o historia completa) ----------
 
   let ahorrosChart = null;
+  let negocioChart = null;
+  let currentNegocioRange = 30;
+  let currentAhorrosRange = 60;
 
-  function buildAhorrosSeries(){
-    const days = 60;
-    const today = new Date(); today.setHours(0,0,0,0);
-    const startDate = new Date(today); startDate.setDate(startDate.getDate() - (days - 1));
-
+  function buildAhorrosSeries(range){
     const movs = allMovimientos.filter(m => getSeccion(m) === 'ahorro');
+    const today = new Date(); today.setHours(0,0,0,0);
 
-    // Saldo acumulado justo antes del inicio de la ventana de 60 días
+    let startDate;
+    if(range === 'all'){
+      const fechas = movs.map(m => m.fecha).filter(Boolean).sort();
+      startDate = fechas.length ? new Date(fechas[0] + 'T00:00:00') : today;
+    }else{
+      startDate = new Date(today);
+      startDate.setDate(startDate.getDate() - (range - 1));
+    }
+    if(startDate > today) startDate = new Date(today);
+
+    // Saldo acumulado justo antes del inicio de la ventana
     let runningArs = 0, runningUsd = 0;
     movs.forEach(m => {
       const f = new Date(m.fecha + 'T00:00:00');
@@ -649,6 +962,7 @@
       }
     });
 
+    const days = Math.round((today - startDate) / (24*60*60*1000)) + 1;
     const labels = [];
     const arsSeries = [];
     const usdSeries = [];
@@ -660,7 +974,7 @@
         runningArs += byDate[key].ars;
         runningUsd += byDate[key].usd;
       }
-      labels.push(key.slice(5));
+      labels.push(range === 'all' && days > 120 ? key.slice(2) : key.slice(5));
       arsSeries.push(runningArs);
       usdSeries.push(runningUsd);
     }
@@ -670,7 +984,7 @@
   function renderAhorrosChart(){
     const canvas = document.getElementById('ahorrosChart');
     if(!canvas) return;
-    const series = buildAhorrosSeries();
+    const series = buildAhorrosSeries(currentAhorrosRange);
     if(ahorrosChart) ahorrosChart.destroy();
     ahorrosChart = new Chart(canvas, {
       type:'line',
@@ -714,6 +1028,139 @@
     });
   }
 
+  // ---------- Gráfico de evolución del capital total de Paletas (1 mes / 6 meses / todo) ----------
+
+  function buildNegocioCapitalSeries(range){
+    const movs = allMovimientos.filter(m => getSeccion(m) === 'negocio');
+    const today = new Date(); today.setHours(0,0,0,0);
+
+    let startDate;
+    if(range === 'all'){
+      const fechas = movs.map(m => m.fecha).filter(Boolean).sort();
+      startDate = fechas.length ? new Date(fechas[0] + 'T00:00:00') : today;
+    }else{
+      startDate = new Date(today);
+      startDate.setDate(startDate.getDate() - (range - 1));
+    }
+    if(startDate > today) startDate = new Date(today);
+
+    // Cotización blue histórica por fecha, para convertir el saldo en USD a pesos
+    // del día correspondiente (no al valor de hoy).
+    const blueByDate = {};
+    blueData.forEach(d => { blueByDate[d.fecha] = d.venta; });
+    if(liveBlue) blueByDate[todayKey()] = liveBlue.venta;
+    const blueDatesSorted = Object.keys(blueByDate).sort();
+
+    function rateForDate(dateKey){
+      if(blueByDate[dateKey] != null) return blueByDate[dateKey];
+      let rate = null;
+      for(let i = blueDatesSorted.length - 1; i >= 0; i--){
+        if(blueDatesSorted[i] <= dateKey){ rate = blueByDate[blueDatesSorted[i]]; break; }
+      }
+      if(rate == null && blueDatesSorted.length) rate = blueByDate[blueDatesSorted[0]];
+      return rate;
+    }
+
+    // Saldo acumulado justo antes del inicio de la ventana
+    let runningArs = 0, runningUsd = 0;
+    movs.forEach(m => {
+      const f = new Date(m.fecha + 'T00:00:00');
+      if(f < startDate){
+        const sign = m.tipo === 'ingreso' ? 1 : -1;
+        if(m.moneda === 'ARS') runningArs += sign * m.monto;
+        else runningUsd += sign * m.monto;
+      }
+    });
+
+    const byDate = {};
+    movs.forEach(m => {
+      const f = new Date(m.fecha + 'T00:00:00');
+      if(f >= startDate && f <= today){
+        byDate[m.fecha] = byDate[m.fecha] || { ars:0, usd:0 };
+        const sign = m.tipo === 'ingreso' ? 1 : -1;
+        if(m.moneda === 'ARS') byDate[m.fecha].ars += sign * m.monto;
+        else byDate[m.fecha].usd += sign * m.monto;
+      }
+    });
+
+    const days = Math.round((today - startDate) / (24*60*60*1000)) + 1;
+    const labels = [];
+    const data = [];
+    for(let i = 0; i < days; i++){
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + i);
+      const key = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      if(byDate[key]){
+        runningArs += byDate[key].ars;
+        runningUsd += byDate[key].usd;
+      }
+      const rate = rateForDate(key) ?? blueAvgRate() ?? 0;
+      labels.push(range === 'all' && days > 120 ? key.slice(2) : key.slice(5));
+      data.push(runningArs + runningUsd * rate);
+    }
+    return { labels, data };
+  }
+
+  function renderNegocioChart(){
+    const canvas = document.getElementById('negocioChart');
+    if(!canvas) return;
+    const series = buildNegocioCapitalSeries(currentNegocioRange);
+    if(negocioChart) negocioChart.destroy();
+    negocioChart = new Chart(canvas, {
+      type:'line',
+      data:{
+        labels: series.labels,
+        datasets:[
+          {
+            label:'Capital total (ARS)',
+            data: series.data,
+            borderColor:'#d9a441',
+            backgroundColor:'rgba(217,164,65,0.08)',
+            borderWidth:2,
+            pointRadius:0,
+            tension:0.25,
+            fill:true,
+          },
+        ],
+      },
+      options:{
+        responsive:true,
+        maintainAspectRatio:false,
+        plugins:{ legend:{ display:false } },
+        scales:{
+          x:{ ticks:{ color:'#9a9689', maxRotation:0, autoSkip:true, maxTicksLimit:8 }, grid:{ display:false } },
+          y:{ ticks:{ color:'#9a9689', callback:(v)=>fmt(v) }, grid:{ color:'#2a2f3a' } },
+        },
+      },
+    });
+  }
+
+  function initNegocioRangeToggle(){
+    const toggle = document.getElementById('negocioRangeToggle');
+    if(!toggle) return;
+    toggle.addEventListener('click', (ev)=>{
+      const btn = ev.target.closest('button[data-range]');
+      if(!btn) return;
+      toggle.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      currentNegocioRange = btn.dataset.range === 'all' ? 'all' : parseInt(btn.dataset.range, 10);
+      renderNegocioChart();
+    });
+  }
+
+  function initAhorrosRangeToggle(){
+    const toggle = document.getElementById('ahorrosRangeToggle');
+    if(!toggle) return;
+    toggle.addEventListener('click', (ev)=>{
+      const btn = ev.target.closest('button[data-range]');
+      if(!btn) return;
+      toggle.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      currentAhorrosRange = btn.dataset.range === 'all' ? 'all' : parseInt(btn.dataset.range, 10);
+      renderAhorrosChart();
+    });
+  }
+
   // ---------- Navegación ----------
 
   function initNav(){
@@ -725,6 +1172,7 @@
     const viewMeta = {
       ahorros: { title:'Ahorros', eyebrow:'Tu ahorro' },
       gastosmes: { title:'Mis gastos', eyebrow:'Gastos del mes' },
+      negocio: { title:'Paletas', eyebrow:'Stock y reventa' },
       cotizaciones: { title:'Pizarra del dólar', eyebrow:'Cotizaciones · Argentina' },
     };
 
@@ -742,6 +1190,7 @@
       btn.classList.add('active');
       document.getElementById('view-ahorros').toggleAttribute('hidden', view !== 'ahorros');
       document.getElementById('view-gastosmes').toggleAttribute('hidden', view !== 'gastosmes');
+      document.getElementById('view-negocio').toggleAttribute('hidden', view !== 'negocio');
       document.getElementById('view-cotizaciones').toggleAttribute('hidden', view !== 'cotizaciones');
       const meta = viewMeta[view] || viewMeta.ahorros;
       pageTitle.textContent = meta.title;
@@ -766,6 +1215,13 @@
   ahorrosController.initBackup();
   gastosController.initForm();
   gastosController.initBackup();
+  negocioController.initForm();
+  negocioController.initBackup();
+  initProductosSync();
+  initStockForm();
+  initVentaPanel();
+  initNegocioRangeToggle();
+  initAhorrosRangeToggle();
   fetchAll();
   setInterval(fetchAll, POLL_MS);
 })();
