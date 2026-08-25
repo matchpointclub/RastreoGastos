@@ -146,6 +146,7 @@
         thresholds = Object.assign(thresholds, doc.data());
         applyThresholdsToInputs();
         renderStock();
+        checkStockEstancado();
       }
     }, (err)=> console.error('Error sincronizando umbrales', err));
   }
@@ -173,13 +174,15 @@
   }
 
   function logAlert(msg){
-    const list = document.getElementById('logList');
-    if(list.querySelector('.log-empty')) list.innerHTML = '';
-    const row = document.createElement('div');
-    row.className = 'log-item';
+    const lists = document.querySelectorAll('.alert-log-list');
     const time = new Date().toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
-    row.innerHTML = '<span>'+msg+'</span><span class="log-time">'+time+'</span>';
-    list.prepend(row);
+    lists.forEach(list => {
+      if(list.querySelector('.log-empty')) list.innerHTML = '';
+      const row = document.createElement('div');
+      row.className = 'log-item';
+      row.innerHTML = '<span>'+msg+'</span><span class="log-time">'+time+'</span>';
+      list.prepend(row);
+    });
   }
 
   function notify(title, body){
@@ -769,6 +772,7 @@
       const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       allProductos = ordenarProductos(items);
       renderStock();
+      checkStockEstancado();
     }, (err)=> console.error('Error sincronizando productos', err));
   }
 

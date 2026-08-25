@@ -138,7 +138,7 @@
     </div>
     <div class="log" aria-live="polite">
       <p class="section-title" style="margin-bottom:8px;">Historial de esta sesión</p>
-      <div id="logList"><p class="log-empty">Todavía no se disparó ninguna alerta.</p></div>
+      <div id="logList" class="alert-log-list"><p class="log-empty">Todavía no se disparó ninguna alerta.</p></div>
     </div>
     <p class="foot-note">
       Las alertas se revisan cada 15 minutos mientras esta página esté abierta en una pestaña
@@ -351,6 +351,10 @@
       </div>
       <div class="actions" style="margin-top:10px;">
         <button class="ghost" id="saveStockDias">Guardar</button>
+      </div>
+      <div class="log" aria-live="polite" style="margin-top:14px;">
+        <p class="section-title" style="margin-bottom:8px;">Historial de alertas</p>
+        <div id="logListNeg" class="alert-log-list"><p class="log-empty">Todavía no se disparó ninguna alerta.</p></div>
       </div>
     </div>
 
