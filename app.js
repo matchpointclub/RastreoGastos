@@ -30,7 +30,6 @@
   let currentRange = 'ultimas24h';
   let chart = null;
   let thresholds = { ofMin:'', ofMax:'', blMin:'', blMax:'', gapPct:'', stockDiasAlerta:'' };
-  let notifGranted = false;
 
   const fmt = (n) => n == null ? '—' : n.toLocaleString('es-AR', { style:'currency', currency:'ARS', minimumFractionDigits:0, maximumFractionDigits:0 });
   const fmtUsd = (n) => 'US$ ' + n.toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 });
@@ -186,7 +185,7 @@
   }
 
   function notify(title, body){
-    if(notifGranted && 'Notification' in window){
+    if('Notification' in window && Notification.permission === 'granted'){
       try{ new Notification(title, { body }); }catch(e){ /* fallback al log */ }
     }
     logAlert(body);
@@ -413,21 +412,29 @@
   document.getElementById('saveThresholds').addEventListener('click', saveThresholds);
   document.getElementById('saveStockDias').addEventListener('click', saveThresholds);
 
-  document.getElementById('enableNotif').addEventListener('click', async ()=>{
+  function updateNotifStatusText(){
     const statusEl = document.getElementById('notifStatus');
+    if(!statusEl) return;
     if(!('Notification' in window)){
       statusEl.textContent = 'Notificaciones: no disponibles en este navegador';
+    }else if(Notification.permission === 'granted'){
+      statusEl.textContent = 'Notificaciones: activas';
+    }else if(Notification.permission === 'denied'){
+      statusEl.textContent = 'Notificaciones: bloqueadas por el navegador (para reactivarlas hay que habilitarlas a mano en la configuración del sitio, no alcanza con tocar el botón)';
+    }else{
+      statusEl.textContent = 'Notificaciones: sin activar';
+    }
+  }
+
+  document.getElementById('enableNotif').addEventListener('click', async ()=>{
+    if(!('Notification' in window)){
+      updateNotifStatusText();
       return;
     }
     try{
-      const perm = await Notification.requestPermission();
-      notifGranted = perm === 'granted';
-      statusEl.textContent = notifGranted
-        ? 'Notificaciones: activas'
-        : 'Notificaciones: bloqueadas (vas a ver los avisos en el historial igual)';
-    }catch(e){
-      statusEl.textContent = 'Notificaciones: no se pudo pedir permiso';
-    }
+      await Notification.requestPermission();
+    }catch(e){ /* el estado real se refleja igual abajo */ }
+    updateNotifStatusText();
   });
 
   // ---------- Movimientos: Ahorros y Gastos (dos billeteras independientes) ----------
@@ -1214,6 +1221,7 @@
   initThresholdsSync();
   initCalculator();
   initNav();
+  updateNotifStatusText();
   initMovimientosSync();
   ahorrosController.initForm();
   ahorrosController.initBackup();
