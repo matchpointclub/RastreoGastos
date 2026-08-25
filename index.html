@@ -34,6 +34,22 @@
     gap:10px;
     margin-top:10px;
   }
+  .alert-log-list .log-item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:8px 0;
+    border-bottom:1px solid #2a2f3a;
+  }
+  .alert-log-list .log-item .log-time{
+    color:#9a9689;
+    font-size:0.8rem;
+    white-space:nowrap;
+  }
+  .alert-log-list .log-item .gasto-delete{
+    flex:0 0 auto;
+  }
 </style>
 </head>
 <body>
@@ -137,17 +153,22 @@
       <span class="notif-status" id="notifStatus">Notificaciones: sin activar</span>
     </div>
     <div class="log" aria-live="polite">
-      <p class="section-title" style="margin-bottom:8px;">Historial de esta sesión</p>
+      <div class="gasto-toggle-row" style="align-items:center; justify-content:space-between;">
+        <p class="section-title" style="margin-bottom:0;">Historial de alertas</p>
+        <button type="button" class="ghost clear-alertas-btn" id="clearAlertas">Vaciar historial</button>
+      </div>
       <div id="logList" class="alert-log-list"><p class="log-empty">Todavía no se disparó ninguna alerta.</p></div>
     </div>
     <p class="foot-note">
       Las alertas se revisan cada 15 minutos mientras esta página esté abierta en una pestaña
       (aunque esté de fondo). Si la cerrás, dejan de funcionar. Las notificaciones del navegador
       pueden requerir permiso explícito; si tu navegador no las permite acá, el aviso va a
-      aparecer igual como una fila en el historial de arriba. La vista "Últimas 24 hs" se arma
-      con lo que esta app va registrando en vivo — no hay datos históricos por hora disponibles,
-      así que solo vas a ver puntos desde que empezás a usarla (y se guardan en este dispositivo,
-      no se sincronizan entre dispositivos).
+      aparecer igual como una fila en el historial de arriba. El historial de alertas queda
+      guardado en este dispositivo aunque recargues la página (no se sincroniza entre
+      dispositivos), guarda como máximo las últimas 50 y podés borrar cada una a mano con la ✕.
+      La vista "Últimas 24 hs" se arma con lo que esta app va registrando en vivo — no hay datos
+      históricos por hora disponibles, así que solo vas a ver puntos desde que empezás a usarla
+      (y también se guardan solo en este dispositivo).
     </p>
   </div>
   </section>
@@ -353,7 +374,10 @@
         <button class="ghost" id="saveStockDias">Guardar</button>
       </div>
       <div class="log" aria-live="polite" style="margin-top:14px;">
-        <p class="section-title" style="margin-bottom:8px;">Historial de alertas</p>
+        <div class="gasto-toggle-row" style="align-items:center; justify-content:space-between;">
+          <p class="section-title" style="margin-bottom:0;">Historial de alertas</p>
+          <button type="button" class="ghost clear-alertas-btn" id="clearAlertasNeg">Vaciar historial</button>
+        </div>
         <div id="logListNeg" class="alert-log-list"><p class="log-empty">Todavía no se disparó ninguna alerta.</p></div>
       </div>
     </div>
@@ -398,10 +422,13 @@
       <input type="file" id="importFileNeg" accept="application/json" hidden>
     </div>
     <p class="foot-note">
-      Al agregar un artículo a stock se descuenta el costo de esta caja; al
+      Esta es tu billetera de reventa (paletas, bolsos, zapatillas y accesorios de pádel), separada
+      de Ahorros y Gastos. Al agregar un artículo a stock se descuenta el costo de esta caja; al
       marcarlo como vendido se te acredita el precio de venta completo (costo recuperado + ganancia).
-      También podés cargar a mano aportes de capital, retiros o gastos sueltos — 
-      La alerta de stock estancado se revisa al abrir la app y cada 15 minutos mientras
+      También podés cargar a mano aportes de capital, retiros o gastos sueltos (envíos, comisiones)
+      desde el formulario de movimientos — el listado de abajo muestra todo junto: compras, ventas
+      y movimientos manuales. Arranca en $0: para tener saldo inicial, cargá un "Aporte de capital"
+      como ingreso. La alerta de stock estancado se revisa al abrir la app y cada 15 minutos mientras
       la tengas abierta (igual que las alertas de dólar), y avisa como máximo una vez por día por
       artículo para no repetirse. Se guarda en la nube (Firebase) y se sincroniza entre tus dispositivos.
     </p>

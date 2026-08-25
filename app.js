@@ -11,6 +11,7 @@
   const db = firebase.firestore();
   const movimientosRef = db.collection('movimientos');
   const productosRef = db.collection('productos');
+  const alertasRef = db.collection('alertas');
   const settingsRef = db.collection('settings').doc('thresholds');
 
   const OFICIAL_URL = 'https://api.argentinadatos.com/v1/cotizaciones/dolares/oficial';
@@ -172,21 +173,92 @@
       .catch((e)=> console.error('No se pudieron guardar los umbrales', e));
   }
 
+  let allAlertas = [];
+  let swRegistration = null;
+
+  async function initServiceWorker(){
+    if(!('serviceWorker' in navigator)) return;
+    try{
+      swRegistration = await navigator.serviceWorker.register('sw.js');
+    }catch(e){
+      console.error('No se pudo registrar el service worker', e);
+    }
+  }
+
   function logAlert(msg){
+    alertasRef.add({
+      mensaje: msg,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    }).catch((e)=> console.error('No se pudo guardar la alerta', e));
+  }
+
+  function renderAlertas(){
     const lists = document.querySelectorAll('.alert-log-list');
-    const time = new Date().toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
-    lists.forEach(list => {
-      if(list.querySelector('.log-empty')) list.innerHTML = '';
-      const row = document.createElement('div');
-      row.className = 'log-item';
-      row.innerHTML = '<span>'+msg+'</span><span class="log-time">'+time+'</span>';
-      list.prepend(row);
+    const html = allAlertas.length === 0
+      ? '<p class="log-empty">Todavía no se disparó ninguna alerta.</p>'
+      : allAlertas.map(a => {
+          const time = (a.createdAt && typeof a.createdAt.toDate === 'function')
+            ? a.createdAt.toDate().toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })
+            : 'Guardando…';
+          return '<div class="log-item" data-id="'+a.id+'">'
+            + '<span>'+a.mensaje+'</span>'
+            + '<span class="log-time">'+time+'</span>'
+            + '<button type="button" class="gasto-delete" data-id="'+a.id+'" aria-label="Eliminar alerta">✕</button>'
+            + '</div>';
+        }).join('');
+    lists.forEach(list => { list.innerHTML = html; });
+  }
+
+  function initAlertasSync(){
+    alertasRef.onSnapshot((snapshot)=>{
+      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      allAlertas = items.sort((a,b) => sortKeyMillis(b) - sortKeyMillis(a));
+      renderAlertas();
+    }, (err)=> console.error('Error sincronizando alertas', err));
+  }
+
+  function initAlertasDelete(){
+    document.querySelectorAll('.alert-log-list').forEach(list => {
+      list.addEventListener('click', (ev)=>{
+        const btn = ev.target.closest('.gasto-delete');
+        if(!btn) return;
+        alertasRef.doc(btn.dataset.id).delete()
+          .catch((e)=> console.error('No se pudo eliminar la alerta', e));
+      });
+    });
+  }
+
+  async function vaciarAlertas(){
+    if(allAlertas.length === 0) return;
+    const confirmado = window.confirm('¿Vaciar todo el historial de alertas? Esta acción no se puede deshacer.');
+    if(!confirmado) return;
+    try{
+      const batch = db.batch();
+      allAlertas.forEach(a => batch.delete(alertasRef.doc(a.id)));
+      await batch.commit();
+    }catch(e){
+      console.error('No se pudo vaciar el historial de alertas', e);
+    }
+  }
+
+  function initAlertasClear(){
+    ['clearAlertas','clearAlertasNeg'].forEach(id => {
+      const btn = document.getElementById(id);
+      if(btn) btn.addEventListener('click', vaciarAlertas);
     });
   }
 
   function notify(title, body){
     if('Notification' in window && Notification.permission === 'granted'){
-      try{ new Notification(title, { body }); }catch(e){ /* fallback al log */ }
+      if(swRegistration && swRegistration.showNotification){
+        // Método compatible con Android: requiere un service worker registrado.
+        swRegistration.showNotification(title, { body, tag: title }).catch(()=>{
+          try{ new Notification(title, { body }); }catch(e){ /* solo queda el historial */ }
+        });
+      }else{
+        // Sin service worker (o navegadores que no lo requieren): método clásico.
+        try{ new Notification(title, { body }); }catch(e){ /* solo queda el historial */ }
+      }
     }
     logAlert(body);
   }
@@ -1223,10 +1295,14 @@
     });
   }
 
+  initServiceWorker();
   initThresholdsSync();
   initCalculator();
   initNav();
   updateNotifStatusText();
+  initAlertasSync();
+  initAlertasDelete();
+  initAlertasClear();
   initMovimientosSync();
   ahorrosController.initForm();
   ahorrosController.initBackup();
