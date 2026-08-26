@@ -863,7 +863,7 @@
     const incluyeVenta = p.estado === 'vendido';
     const confirmado = window.confirm(
       '¿Eliminar "'+p.nombre+'"? Esto también borra el/los movimiento(s) de caja asociados (compra'
-      + (incluyeVenta ? ' y venta' : '') + ').'
+      + (incluyeVenta ? ' y venta' : '') + ') y el historial de alertas de stock estancado de este artículo.'
     );
     if(!confirmado) return;
     try{
@@ -871,6 +871,12 @@
       if(p.movCompraId) batch.delete(movimientosRef.doc(p.movCompraId));
       if(p.movVentaId) batch.delete(movimientosRef.doc(p.movVentaId));
       batch.delete(productosRef.doc(id));
+      // Limpia también las alertas de "stock estancado" ya disparadas para este
+      // artículo puntual, para que no queden huérfanas en el historial.
+      const prefijo = 'stock_' + id + '_';
+      allAlertas
+        .filter(a => a.dedupeKey && a.dedupeKey.indexOf(prefijo) === 0)
+        .forEach(a => batch.delete(alertasRef.doc(a.id)));
       await batch.commit();
     }catch(e){
       console.error('No se pudo eliminar el artículo', e);
