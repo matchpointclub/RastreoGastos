@@ -412,7 +412,19 @@
       options:{
         responsive:true,
         maintainAspectRatio:false,
-        plugins:{ legend:{ display:false } },
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{ display:false },
+          tooltip:{
+            mode:'index', intersect:false,
+            callbacks:{
+              label:(ctx)=>{
+                const v = ctx.parsed.y;
+                return ctx.dataset.label + ': ' + (v == null ? '—' : fmt(v));
+              },
+            },
+          },
+        },
         scales:{
           x:{ ticks:{ color:'#9a9689', maxRotation:0 }, grid:{ display:false } },
           y:{ ticks:{ color:'#9a9689' }, grid:{ color:'#2a2f3a' } },
@@ -1109,7 +1121,20 @@
       options:{
         responsive:true,
         maintainAspectRatio:false,
-        plugins:{ legend:{ display:false } },
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{ display:false },
+          tooltip:{
+            mode:'index', intersect:false,
+            callbacks:{
+              label:(ctx)=>{
+                const v = ctx.parsed.y;
+                const formatear = ctx.dataset.label === 'Dólares' ? fmtUsd : fmt;
+                return ctx.dataset.label + ': ' + (v == null ? '—' : formatear(v));
+              },
+            },
+          },
+        },
         scales:{
           x:{ ticks:{ color:'#9a9689', maxRotation:0, autoSkip:true, maxTicksLimit:8 }, grid:{ display:false } },
           y:{ position:'left', ticks:{ color:'#d9a441' }, grid:{ color:'#2a2f3a' } },
@@ -1217,7 +1242,19 @@
       options:{
         responsive:true,
         maintainAspectRatio:false,
-        plugins:{ legend:{ display:false } },
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{ display:false },
+          tooltip:{
+            mode:'index', intersect:false,
+            callbacks:{
+              label:(ctx)=>{
+                const v = ctx.parsed.y;
+                return 'Capital: ' + (v == null ? '—' : fmt(v));
+              },
+            },
+          },
+        },
         scales:{
           x:{ ticks:{ color:'#9a9689', maxRotation:0, autoSkip:true, maxTicksLimit:8 }, grid:{ display:false } },
           y:{ ticks:{ color:'#9a9689', callback:(v)=>fmt(v) }, grid:{ color:'#2a2f3a' } },
