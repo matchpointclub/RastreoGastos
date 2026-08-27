@@ -473,6 +473,7 @@
       gastosController.render();
       negocioController.render();
       renderNegocioChart();
+      renderPatrimonio();
       if(liveOficial && liveBlue) checkThresholds(liveOficial.venta, liveBlue.venta);
       checkStockEstancado();
     }catch(e){
@@ -866,6 +867,8 @@
       allProductos = ordenarProductos(items);
       renderStock();
       checkStockEstancado();
+      renderAhorrosChart();
+      renderPatrimonio();
     }, (err)=> console.error('Error sincronizando productos', err));
   }
 
@@ -1009,6 +1012,39 @@
     });
   }
 
+  // ---------- Patrimonio total (Ahorros + caja Paletas + stock invertido en Paletas) ----------
+
+  function renderPatrimonio(){
+    const totalEl = document.getElementById('patrimonioTotal');
+    const breakdownEl = document.getElementById('patrimonioBreakdown');
+    if(!totalEl) return;
+
+    const sumaMovs = (seccion, moneda) => allMovimientos
+      .filter(m => getSeccion(m) === seccion && m.moneda === moneda)
+      .reduce((s,m) => s + (m.tipo === 'ingreso' ? m.monto : -m.monto), 0);
+
+    const ahorroArs = sumaMovs('ahorro', 'ARS');
+    const ahorroUsd = sumaMovs('ahorro', 'USD');
+    const negocioArs = sumaMovs('negocio', 'ARS');
+    const negocioUsd = sumaMovs('negocio', 'USD');
+
+    const enStock = allProductos.filter(p => p.estado !== 'vendido');
+    const stockArs = enStock.filter(p => p.moneda === 'ARS').reduce((s,p) => s + (p.costo || 0), 0);
+    const stockUsd = enStock.filter(p => p.moneda === 'USD').reduce((s,p) => s + (p.costo || 0), 0);
+
+    const totalArs = ahorroArs + negocioArs + stockArs;
+    const totalUsd = ahorroUsd + negocioUsd + stockUsd;
+    const rate = blueAvgRate();
+
+    totalEl.textContent = rate
+      ? fmt(totalArs + totalUsd * rate)
+      : fmt(totalArs) + ' + ' + fmtUsd(totalUsd);
+
+    breakdownEl.textContent = 'Ahorros: ' + fmt(ahorroArs) + ' + ' + fmtUsd(ahorroUsd)
+      + ' · Caja Paletas: ' + fmt(negocioArs) + ' + ' + fmtUsd(negocioUsd)
+      + ' · Stock Paletas: ' + fmt(stockArs) + ' + ' + fmtUsd(stockUsd);
+  }
+
   function initMovimientosSync(){
     movimientosRef.onSnapshot((snapshot)=>{
       const movs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -1018,6 +1054,7 @@
       negocioController.render();
       renderAhorrosChart();
       renderNegocioChart();
+      renderPatrimonio();
     }, (err)=> console.error('Error sincronizando movimientos', err));
   }
 
@@ -1042,6 +1079,8 @@
     }
     if(startDate > today) startDate = new Date(today);
 
+    const rateForDate = buildBlueRateLookup();
+
     // Saldo acumulado justo antes del inicio de la ventana
     let runningArs = 0, runningUsd = 0;
     movs.forEach(m => {
@@ -1065,10 +1104,58 @@
       }
     });
 
+    // Valor de stock de Paletas por día: entra al costo en la fecha de compra,
+    // sale al mismo costo en la fecha de venta (si ya se vendió).
+    const stockEventos = {};
+    allProductos.forEach(p => {
+      if(!p.fechaCompra || !p.costo) return;
+      stockEventos[p.fechaCompra] = stockEventos[p.fechaCompra] || { ars:0, usd:0 };
+      if(p.moneda === 'USD') stockEventos[p.fechaCompra].usd += p.costo;
+      else stockEventos[p.fechaCompra].ars += p.costo;
+      if(p.estado === 'vendido' && p.fechaVenta){
+        stockEventos[p.fechaVenta] = stockEventos[p.fechaVenta] || { ars:0, usd:0 };
+        if(p.moneda === 'USD') stockEventos[p.fechaVenta].usd -= p.costo;
+        else stockEventos[p.fechaVenta].ars -= p.costo;
+      }
+    });
+    let runningStockArs = 0, runningStockUsd = 0;
+    Object.keys(stockEventos).forEach(fecha => {
+      const f = new Date(fecha + 'T00:00:00');
+      if(f < startDate){
+        runningStockArs += stockEventos[fecha].ars;
+        runningStockUsd += stockEventos[fecha].usd;
+      }
+    });
+
+    // Caja de Paletas (aportes, ventas, retiros, gastos) por día — se suma al
+    // valor de stock para que la línea de Paletas represente el total real
+    // (plata líquida + mercadería sin vender), no solo el stock.
+    const negocioMovs = allMovimientos.filter(m => getSeccion(m) === 'negocio');
+    let runningCajaArs = 0, runningCajaUsd = 0;
+    negocioMovs.forEach(m => {
+      const f = new Date(m.fecha + 'T00:00:00');
+      if(f < startDate){
+        const sign = m.tipo === 'ingreso' ? 1 : -1;
+        if(m.moneda === 'ARS') runningCajaArs += sign * m.monto;
+        else runningCajaUsd += sign * m.monto;
+      }
+    });
+    const byDateCaja = {};
+    negocioMovs.forEach(m => {
+      const f = new Date(m.fecha + 'T00:00:00');
+      if(f >= startDate && f <= today){
+        byDateCaja[m.fecha] = byDateCaja[m.fecha] || { ars:0, usd:0 };
+        const sign = m.tipo === 'ingreso' ? 1 : -1;
+        if(m.moneda === 'ARS') byDateCaja[m.fecha].ars += sign * m.monto;
+        else byDateCaja[m.fecha].usd += sign * m.monto;
+      }
+    });
+
     const days = Math.round((today - startDate) / (24*60*60*1000)) + 1;
     const labels = [];
     const arsSeries = [];
     const usdSeries = [];
+    const paletasPesosSeries = [];
     for(let i = 0; i < days; i++){
       const d = new Date(startDate);
       d.setDate(d.getDate() + i);
@@ -1077,11 +1164,23 @@
         runningArs += byDate[key].ars;
         runningUsd += byDate[key].usd;
       }
+      if(stockEventos[key]){
+        runningStockArs += stockEventos[key].ars;
+        runningStockUsd += stockEventos[key].usd;
+      }
+      if(byDateCaja[key]){
+        runningCajaArs += byDateCaja[key].ars;
+        runningCajaUsd += byDateCaja[key].usd;
+      }
+      const rate = rateForDate(key) ?? blueAvgRate() ?? 0;
       labels.push(range === 'all' && days > 120 ? key.slice(2) : key.slice(5));
       arsSeries.push(runningArs);
       usdSeries.push(runningUsd);
+      const stockPesos = runningStockArs + runningStockUsd * rate;
+      const cajaPesos = runningCajaArs + runningCajaUsd * rate;
+      paletasPesosSeries.push(stockPesos + cajaPesos);
     }
-    return { labels, arsSeries, usdSeries };
+    return { labels, arsSeries, usdSeries, paletasPesosSeries };
   }
 
   function renderAhorrosChart(){
@@ -1095,7 +1194,7 @@
         labels: series.labels,
         datasets:[
           {
-            label:'Pesos',
+            label:'Ahorros (pesos)',
             data: series.arsSeries,
             borderColor:'#d9a441',
             backgroundColor:'rgba(217,164,65,0.08)',
@@ -1106,7 +1205,7 @@
             yAxisID:'y',
           },
           {
-            label:'Dólares',
+            label:'Ahorros (dólares)',
             data: series.usdSeries,
             borderColor:'#3fb897',
             backgroundColor:'rgba(63,184,151,0.08)',
@@ -1115,6 +1214,18 @@
             tension:0.25,
             fill:true,
             yAxisID:'y1',
+          },
+          {
+            label:'Paletas (caja + stock)',
+            data: series.paletasPesosSeries,
+            borderColor:'#218ad9',
+            backgroundColor:'rgba(58, 99, 166, 0.06)',
+            borderWidth:2,
+            borderDash:[6,4],
+            pointRadius:0,
+            tension:0.25,
+            fill:true,
+            yAxisID:'y',
           },
         ],
       },
@@ -1129,7 +1240,8 @@
             callbacks:{
               label:(ctx)=>{
                 const v = ctx.parsed.y;
-                const formatear = ctx.dataset.label === 'Dólares' ? fmtUsd : fmt;
+                const esUsd = ctx.dataset.label.indexOf('dólares') !== -1;
+                const formatear = esUsd ? fmtUsd : fmt;
                 return ctx.dataset.label + ': ' + (v == null ? '—' : formatear(v));
               },
             },
@@ -1146,6 +1258,25 @@
 
   // ---------- Gráfico de evolución del capital total de Paletas (1 mes / 6 meses / todo) ----------
 
+  // Cotización blue histórica por fecha, para convertir saldos en USD a pesos
+  // del día correspondiente (no al valor de hoy). Devuelve una función
+  // rateForDate(dateKey) que usa la cotización más cercana disponible.
+  function buildBlueRateLookup(){
+    const blueByDate = {};
+    blueData.forEach(d => { blueByDate[d.fecha] = d.venta; });
+    if(liveBlue) blueByDate[todayKey()] = liveBlue.venta;
+    const blueDatesSorted = Object.keys(blueByDate).sort();
+    return function rateForDate(dateKey){
+      if(blueByDate[dateKey] != null) return blueByDate[dateKey];
+      let rate = null;
+      for(let i = blueDatesSorted.length - 1; i >= 0; i--){
+        if(blueDatesSorted[i] <= dateKey){ rate = blueByDate[blueDatesSorted[i]]; break; }
+      }
+      if(rate == null && blueDatesSorted.length) rate = blueByDate[blueDatesSorted[0]];
+      return rate;
+    };
+  }
+
   function buildNegocioCapitalSeries(range){
     const movs = allMovimientos.filter(m => getSeccion(m) === 'negocio');
     const today = new Date(); today.setHours(0,0,0,0);
@@ -1160,22 +1291,7 @@
     }
     if(startDate > today) startDate = new Date(today);
 
-    // Cotización blue histórica por fecha, para convertir el saldo en USD a pesos
-    // del día correspondiente (no al valor de hoy).
-    const blueByDate = {};
-    blueData.forEach(d => { blueByDate[d.fecha] = d.venta; });
-    if(liveBlue) blueByDate[todayKey()] = liveBlue.venta;
-    const blueDatesSorted = Object.keys(blueByDate).sort();
-
-    function rateForDate(dateKey){
-      if(blueByDate[dateKey] != null) return blueByDate[dateKey];
-      let rate = null;
-      for(let i = blueDatesSorted.length - 1; i >= 0; i--){
-        if(blueDatesSorted[i] <= dateKey){ rate = blueByDate[blueDatesSorted[i]]; break; }
-      }
-      if(rate == null && blueDatesSorted.length) rate = blueByDate[blueDatesSorted[0]];
-      return rate;
-    }
+    const rateForDate = buildBlueRateLookup();
 
     // Saldo acumulado justo antes del inicio de la ventana
     let runningArs = 0, runningUsd = 0;
