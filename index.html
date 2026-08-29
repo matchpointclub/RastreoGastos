@@ -346,9 +346,10 @@
       </div>
       <input type="text" id="productoNombre" placeholder="Artículo (ej. Paleta Head Flash, Bolso Wilson, Cubre grip...)" required>
       <div class="gasto-row">
-        <input type="number" id="productoCosto" placeholder="Costo" min="0" step="any" required>
-        <input type="date" id="productoFecha">
+        <input type="number" id="productoCantidad" placeholder="Cantidad" min="1" step="1" value="1">
+        <input type="number" id="productoCosto" placeholder="Costo por unidad" min="0" step="any" required>
       </div>
+      <input type="date" id="productoFecha">
       <button type="submit" class="primary">Agregar a stock</button>
     </form>
 

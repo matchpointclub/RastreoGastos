@@ -901,6 +901,7 @@
   function initStockForm(){
     const monedaToggle = document.getElementById('productoMonedaToggle');
     const nombreInput = document.getElementById('productoNombre');
+    const cantidadInput = document.getElementById('productoCantidad');
     const costoInput = document.getElementById('productoCosto');
     const fechaInput = document.getElementById('productoFecha');
     const form = document.getElementById('productoForm');
@@ -914,31 +915,41 @@
       productoMonedaSeleccionada = btn.dataset.moneda;
       monedaToggle.querySelectorAll('.type-btn').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
-      costoInput.placeholder = productoMonedaSeleccionada === 'USD' ? 'Costo en USD' : 'Costo en ARS';
+      costoInput.placeholder = productoMonedaSeleccionada === 'USD' ? 'Costo por unidad en USD' : 'Costo por unidad en ARS';
     });
 
     form.addEventListener('submit', async (ev)=>{
       ev.preventDefault();
-      const nombre = nombreInput.value.trim();
+      const nombreBase = nombreInput.value.trim();
       const costo = parseFloat(costoInput.value);
       const fechaCompra = fechaInput.value || new Date().toISOString().slice(0,10);
-      if(!nombre || !costo || costo <= 0) return;
+      const cantidadRaw = cantidadInput ? parseInt(cantidadInput.value, 10) : 1;
+      const cantidad = Math.min(200, Math.max(1, isNaN(cantidadRaw) ? 1 : cantidadRaw));
+      if(!nombreBase || !costo || costo <= 0) return;
       try{
-        const movRef = await movimientosRef.add({
-          tipo:'egreso', moneda: productoMonedaSeleccionada, desc:'Compra stock: '+nombre,
-          monto: costo, fecha: fechaCompra, seccion:'negocio',
-          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        });
-        await productosRef.add({
-          nombre, moneda: productoMonedaSeleccionada, costo, fechaCompra, estado:'stock',
-          movCompraId: movRef.id, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        });
+        const batch = db.batch();
+        for(let i = 0; i < cantidad; i++){
+          const nombre = cantidad > 1 ? nombreBase + ' #' + (i + 1) : nombreBase;
+          const movRef = movimientosRef.doc();
+          const prodRef = productosRef.doc();
+          batch.set(movRef, {
+            tipo:'egreso', moneda: productoMonedaSeleccionada, desc:'Compra stock: '+nombre,
+            monto: costo, fecha: fechaCompra, seccion:'negocio',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+          batch.set(prodRef, {
+            nombre, moneda: productoMonedaSeleccionada, costo, fechaCompra, estado:'stock',
+            movCompraId: movRef.id, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+        await batch.commit();
         form.reset();
         fechaInput.value = new Date().toISOString().slice(0,10);
+        if(cantidadInput) cantidadInput.value = '1';
         productoMonedaSeleccionada = 'ARS';
         monedaToggle.querySelectorAll('.type-btn').forEach(b=>b.classList.remove('active'));
         monedaToggle.querySelector('[data-moneda="ARS"]').classList.add('active');
-        costoInput.placeholder = 'Costo';
+        costoInput.placeholder = 'Costo por unidad en ARS';
       }catch(e){
         console.error('No se pudo agregar el artículo', e);
       }
