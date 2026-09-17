@@ -53,10 +53,76 @@
   .alert-log-list .log-item .gasto-delete{
     flex:0 0 auto;
   }
+  .auth-screen{
+    position:fixed;
+    inset:0;
+    background:#14171c;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+    z-index:1000;
+  }
+  .auth-screen[hidden]{
+  display: none;
+}
+  .auth-card{
+    width:100%;
+    max-width:360px;
+  }
+  .auth-card h1{
+    font-size:1.4rem;
+    margin:4px 0 20px;
+  }
+  .auth-card form{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+  .auth-card input{
+    width:100%;
+    box-sizing:border-box;
+  }
+  .auth-toggle{
+    margin-top:16px;
+    font-size:0.9rem;
+    color:#9a9689;
+  }
+  .link-btn{
+    background:none;
+    border:none;
+    color:#d9a441;
+    text-decoration:underline;
+    cursor:pointer;
+    padding:0;
+    font-size:inherit;
+  }
+  .auth-error{
+    color:#e0665c;
+    font-size:0.9rem;
+    margin-top:10px;
+    min-height:1.2em;
+  }
 </style>
 </head>
 <body>
-<div id="app">
+<div id="authScreen" class="auth-screen">
+  <div class="auth-card">
+    <p class="eyebrow">Acceso privado</p>
+    <h1>Pizarra — Dólar AR</h1>
+    <form id="authForm">
+      <input type="email" id="authEmail" placeholder="Email" required autocomplete="username">
+      <input type="password" id="authPassword" placeholder="Contraseña" required autocomplete="current-password" minlength="6">
+      <button type="submit" class="primary" id="authSubmitBtn">Ingresar</button>
+    </form>
+    <p class="auth-toggle">
+      <span id="authToggleLabel">¿Primera vez acá?</span>
+      <button type="button" id="authToggleBtn" class="link-btn">Crear cuenta</button>
+    </p>
+    <p class="auth-error" id="authError"></p>
+  </div>
+</div>
+<div id="app" hidden>
   <div class="topbar">
     <button id="menuBtn" class="menu-btn" aria-label="Abrir menú" aria-expanded="false">
       <span></span><span></span><span></span>
@@ -70,6 +136,7 @@
       <button class="nav-item" data-view="gastosmes">Gastos</button>
       <button class="nav-item" data-view="negocio">Paletas</button>
       <button class="nav-item" data-view="cotizaciones">Cotizaciones</button>
+      <button class="nav-item" id="logoutBtn" style="opacity:0.7;">Cerrar sesión</button>
     </nav>
   </div>
 
@@ -433,6 +500,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
 <script src="app.js"></script>

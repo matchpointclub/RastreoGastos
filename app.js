@@ -1440,6 +1440,7 @@
     navMenu.addEventListener('click', (ev)=>{
       const btn = ev.target.closest('.nav-item');
       if(!btn) return;
+      if(btn.id === 'logoutBtn') return; // tiene su propio listener (cerrar sesión), no cambia de vista
       const view = btn.dataset.view;
       document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
@@ -1462,26 +1463,121 @@
     });
   }
 
-  initServiceWorker();
-  initThresholdsSync();
-  initCalculator();
-  initNav();
-  updateNotifStatusText();
-  initAlertasSync();
-  initAlertasDelete();
-  initAlertasClear();
-  initMovimientosSync();
-  ahorrosController.initForm();
-  ahorrosController.initBackup();
-  gastosController.initForm();
-  gastosController.initBackup();
-  negocioController.initForm();
-  negocioController.initBackup();
-  initProductosSync();
-  initStockForm();
-  initVentaPanel();
-  initNegocioRangeToggle();
-  initAhorrosRangeToggle();
-  fetchAll();
-  setInterval(fetchAll, POLL_MS);
+  let appIniciada = false;
+
+  function iniciarApp(){
+    if(appIniciada) return;
+    appIniciada = true;
+    initServiceWorker();
+    initThresholdsSync();
+    initCalculator();
+    initNav();
+    updateNotifStatusText();
+    initAlertasSync();
+    initAlertasDelete();
+    initAlertasClear();
+    initMovimientosSync();
+    ahorrosController.initForm();
+    ahorrosController.initBackup();
+    gastosController.initForm();
+    gastosController.initBackup();
+    negocioController.initForm();
+    negocioController.initBackup();
+    initProductosSync();
+    initStockForm();
+    initVentaPanel();
+    initNegocioRangeToggle();
+    initAhorrosRangeToggle();
+    fetchAll();
+    setInterval(fetchAll, POLL_MS);
+  }
+
+  // ---------- Acceso privado (Firebase Authentication) ----------
+
+  function traducirErrorAuth(e){
+    console.error('Error de autenticación:', e.code, e.message);
+    const map = {
+      'auth/invalid-email': 'Email inválido.',
+      'auth/user-not-found': 'No existe una cuenta con ese email.',
+      'auth/wrong-password': 'Contraseña incorrecta.',
+      'auth/email-already-in-use': 'Ya existe una cuenta con ese email. Probá "Ingresar" en vez de "Crear cuenta".',
+      'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres.',
+      'auth/invalid-credential': 'Email o contraseña incorrectos.',
+      'auth/too-many-requests': 'Demasiados intentos. Esperá un momento y probá de nuevo.',
+      'auth/operation-not-allowed': 'El método de email/contraseña no está activado en Firebase (Authentication → Sign-in method).',
+      'auth/unauthorized-domain': 'Este dominio no está autorizado en Firebase. Agregalo en Authentication → Settings → Authorized domains, o probá con "localhost" en vez de "127.0.0.1".',
+      'auth/network-request-failed': 'No se pudo conectar. Revisá tu conexión a internet.',
+    };
+    return map[e.code] || ('No se pudo procesar la solicitud (' + (e.code || 'error desconocido') + '). Intentá de nuevo.');
+  }
+
+  function initAuth(){
+    const auth = firebase.auth();
+    // Persistencia local: una vez logueado, la sesión queda guardada en este
+    // navegador/dispositivo y no hay que volver a iniciar sesión cada vez.
+    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+      .catch((e)=> console.error('No se pudo fijar la persistencia de sesión', e));
+
+    const authScreen = document.getElementById('authScreen');
+    const appEl = document.getElementById('app');
+    const form = document.getElementById('authForm');
+    const emailInput = document.getElementById('authEmail');
+    const passwordInput = document.getElementById('authPassword');
+    const toggleBtn = document.getElementById('authToggleBtn');
+    const toggleLabel = document.getElementById('authToggleLabel');
+    const submitBtn = document.getElementById('authSubmitBtn');
+    const errorEl = document.getElementById('authError');
+    const logoutBtn = document.getElementById('logoutBtn');
+    let modoCrearCuenta = false;
+
+    auth.onAuthStateChanged((user)=>{
+      if(user){
+        if(authScreen) authScreen.setAttribute('hidden','');
+        if(appEl) appEl.removeAttribute('hidden');
+        iniciarApp();
+      }else{
+        if(appEl) appEl.setAttribute('hidden','');
+        if(authScreen) authScreen.removeAttribute('hidden');
+      }
+    });
+
+    if(toggleBtn){
+      toggleBtn.addEventListener('click', ()=>{
+        modoCrearCuenta = !modoCrearCuenta;
+        toggleLabel.textContent = modoCrearCuenta ? '¿Ya tenés cuenta?' : '¿Primera vez acá?';
+        toggleBtn.textContent = modoCrearCuenta ? 'Ingresar' : 'Crear cuenta';
+        submitBtn.textContent = modoCrearCuenta ? 'Crear cuenta' : 'Ingresar';
+        errorEl.textContent = '';
+      });
+    }
+
+    if(form){
+      form.addEventListener('submit', async (ev)=>{
+        ev.preventDefault();
+        errorEl.textContent = '';
+        const email = emailInput.value.trim();
+        const password = passwordInput.value;
+        submitBtn.disabled = true;
+        try{
+          if(modoCrearCuenta){
+            await auth.createUserWithEmailAndPassword(email, password);
+          }else{
+            await auth.signInWithEmailAndPassword(email, password);
+          }
+        }catch(e){
+          errorEl.textContent = traducirErrorAuth(e);
+        }finally{
+          submitBtn.disabled = false;
+        }
+      });
+    }
+
+    if(logoutBtn){
+      logoutBtn.addEventListener('click', ()=>{
+        auth.signOut();
+      });
+    }
+  }
+
+  initAuth();
 })();
