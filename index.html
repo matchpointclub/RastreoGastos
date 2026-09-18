@@ -131,16 +131,89 @@
       <p class="eyebrow" id="pageEyebrow">Tu ahorro</p>
       <h1 id="pageTitle">Ahorros</h1>
     </div>
-        <nav id="navMenu" class="nav-menu" hidden>
+    <nav id="navMenu" class="nav-menu" hidden>
       <button class="nav-item active" data-view="ahorros">Ahorros</button>
       <button class="nav-item" data-view="gastosmes">Gastos</button>
       <button class="nav-item" data-view="negocio">Paletas</button>
+      <button class="nav-item" data-view="acciones">Acciones</button>
       <button class="nav-item" data-view="cotizaciones">Cotizaciones</button>
     </nav>
     <button class="ghost logout-btn" id="logoutBtn">Cerrar sesión</button>
   </div>
 
   <h2 class="sr-only">Seguimiento de la cotización del dólar oficial y blue con gráfico histórico y alertas configurables</h2>
+
+  <section id="view-acciones" class="view" hidden>
+    <p class="section-title">Composición de la cartera</p>
+    <div class="acciones-chart-wrap">
+      <canvas id="accionesChart" role="img" aria-label="Gráfico de torta con la proporción de acciones por empresa sobre el total">Cargando datos del gráfico.</canvas>
+      <p class="log-empty acciones-empty-msg">Todavía no cargaste acciones.</p>
+    </div>
+    <p class="gastos-usd" id="accionesInvertidoTotal"></p>
+    <p class="gastos-usd" id="accionesGananciaRealizada"></p>
+    <div class="legend acciones-legend" id="accionesLegend"></div>
+
+    <p class="section-title">Tenencias por empresa</p>
+    <div class="gasto-list" id="accionesTenenciasList">
+      <p class="log-empty">Todavía no cargaste acciones.</p>
+    </div>
+
+    <div class="venta-panel" id="ventaAccionPanel" hidden>
+      <p class="section-title" style="margin-bottom:10px;">Vender acciones</p>
+      <p class="venta-panel-nombre" id="ventaAccionNombre"></p>
+      <div class="gasto-toggle-row">
+        <div class="gasto-type-toggle" id="ventaAccionMonedaToggle">
+          <button type="button" class="type-btn moneda active" data-moneda="ARS">Pesos</button>
+          <button type="button" class="type-btn moneda" data-moneda="USD">Dólares</button>
+        </div>
+      </div>
+      <div class="gasto-row">
+        <input type="number" id="ventaAccionCantidad" placeholder="Cantidad a vender" min="0" step="any">
+        <input type="number" id="ventaAccionPrecio" placeholder="Precio de venta por acción" min="0" step="any">
+      </div>
+      <input type="date" id="ventaAccionFecha">
+      <div class="venta-panel-actions">
+        <button class="primary" id="ventaAccionConfirmar">Confirmar venta</button>
+        <button class="ghost" id="ventaAccionCancelar">Cancelar</button>
+      </div>
+    </div>
+
+    <p class="section-title">Cargar compra</p>
+    <form id="accionForm" class="gasto-form">
+      <div class="gasto-toggle-row">
+        <div class="gasto-type-toggle" id="accionMonedaToggle">
+          <button type="button" class="type-btn moneda active" data-moneda="ARS">Pesos</button>
+          <button type="button" class="type-btn moneda" data-moneda="USD">Dólares</button>
+        </div>
+      </div>
+      <input type="text" id="accionEmpresa" placeholder="Empresa (ej. YPF, Apple, Mercado Libre)" style="text-transform:uppercase;" required>
+      <div class="gasto-row">
+        <input type="number" id="accionCantidad" placeholder="Cantidad de acciones" min="0" step="any" required>
+        <input type="number" id="accionPrecio" placeholder="Precio por acción en ARS" min="0" step="any" required>
+      </div>
+      <input type="date" id="accionFecha">
+      <button type="submit" class="primary">Agregar compra</button>
+    </form>
+
+    <p class="section-title">Historial de compras</p>
+    <div class="gasto-list" id="accionesList">
+      <p class="log-empty">Todavía no cargaste compras de acciones.</p>
+    </div>
+
+    <p class="section-title">Historial de ventas</p>
+    <div class="gasto-list" id="accionesVentasList">
+      <p class="log-empty">Todavía no vendiste acciones.</p>
+    </div>
+
+    <p class="foot-note">
+      El gráfico de torta muestra qué porcentaje de tus acciones totales corresponde a cada
+      empresa, según la cantidad de acciones que tenés hoy (no según el monto invertido). El
+      "Invertido total" es a precio de compra, no al valor de mercado actual (esta app no
+      consulta cotizaciones de acciones). La ganancia o pérdida de cada venta se calcula contra
+      el precio promedio de compra de esa empresa, no contra una compra puntual. Se guarda en la
+      nube (Firebase) y se sincroniza entre tus dispositivos.
+    </p>
+  </section>
 
   <section id="view-cotizaciones" class="view" hidden>
 

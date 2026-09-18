@@ -13,6 +13,7 @@
   const productosRef = db.collection('productos');
   const alertasRef = db.collection('alertas');
   const settingsRef = db.collection('settings').doc('thresholds');
+  const accionesRef = db.collection('acciones');
 
   const OFICIAL_URL = 'https://api.argentinadatos.com/v1/cotizaciones/dolares/oficial';
   const BLUE_URL = 'https://api.argentinadatos.com/v1/cotizaciones/dolares/blue';
@@ -1416,6 +1417,404 @@
     });
   }
 
+  // ---------- Acciones: cartera de acciones (torta por participación + tenencias + ventas) ----------
+
+  let allAcciones = [];
+  let accionesChart = null;
+  let ventaAccionEmpresa = null;
+  const ACCIONES_COLORS = ['#d9a441','#3fb897','#218ad9','#c96fd0','#e0665c','#7fae4f','#e0a5d0','#7a8fa6','#e0c65c','#5c7fe0'];
+
+  function colorParaEmpresa(nombre, index){
+    // Color estable por empresa (mismo color siempre, sin importar el orden),
+    // más un fallback por índice si hay colisión de hash.
+    let hash = 0;
+    for(let i = 0; i < nombre.length; i++){ hash = (hash * 31 + nombre.charCodeAt(i)) >>> 0; }
+    return ACCIONES_COLORS[hash % ACCIONES_COLORS.length] || ACCIONES_COLORS[index % ACCIONES_COLORS.length];
+  }
+
+  function ordenarAcciones(items){
+    return items.slice().sort((a,b) => {
+      const fa = a.fecha || '';
+      const fb = b.fecha || '';
+      if(fa !== fb) return fb.localeCompare(fa);
+      return sortKeyMillis(b) - sortKeyMillis(a);
+    });
+  }
+
+  function esVenta(a){ return a.tipo === 'venta'; }
+
+  function emptyMonedaStats(){
+    return { cantidadComprada:0, invertido:0, cantidadVendida:0, ingresoVenta:0, precioProm:0, cantidadActual:0, invertidoActual:0, ganancia:0 };
+  }
+
+  // Agrupa compras y ventas por empresa y moneda usando costo promedio ponderado:
+  // el precio promedio de compra no cambia al vender, así que la ganancia de cada
+  // venta se calcula contra ese promedio (no contra una compra puntual).
+  function agruparTenencias(){
+    const map = {};
+    allAcciones.forEach(a => {
+      if(!map[a.empresa]) map[a.empresa] = { empresa: a.empresa, ARS: emptyMonedaStats(), USD: emptyMonedaStats() };
+      const bucket = map[a.empresa][a.moneda === 'USD' ? 'USD' : 'ARS'];
+      if(esVenta(a)){
+        bucket.cantidadVendida += a.cantidad;
+        bucket.ingresoVenta += a.cantidad * a.precio;
+      }else{
+        bucket.cantidadComprada += a.cantidad;
+        bucket.invertido += a.cantidad * a.precio;
+      }
+    });
+    const tenencias = Object.values(map).map(t => {
+      ['ARS','USD'].forEach(moneda => {
+        const b = t[moneda];
+        b.cantidadActual = b.cantidadComprada - b.cantidadVendida;
+        b.precioProm = b.cantidadComprada ? b.invertido / b.cantidadComprada : 0;
+        b.invertidoActual = b.precioProm * b.cantidadActual;
+        b.ganancia = b.ingresoVenta - (b.precioProm * b.cantidadVendida);
+      });
+      t.cantidadTotalActual = t.ARS.cantidadActual + t.USD.cantidadActual;
+      t.gananciaTotalArs = t.ARS.ganancia;
+      t.gananciaTotalUsd = t.USD.ganancia;
+      return t;
+    });
+    return tenencias.sort((a,b) => b.cantidadTotalActual - a.cantidadTotalActual || a.empresa.localeCompare(b.empresa));
+  }
+
+  function renderAccionesChart(){
+    const canvas = document.getElementById('accionesChart');
+    if(!canvas) return;
+    const todas = agruparTenencias();
+    const tenencias = todas.filter(t => t.cantidadTotalActual > 0);
+    const wrap = canvas.closest('.acciones-chart-wrap');
+    const totalEl = document.getElementById('accionesInvertidoTotal');
+    const gananciaEl = document.getElementById('accionesGananciaRealizada');
+
+    // Invertido total y ganancia realizada se calculan sobre todas las empresas
+    // (incluidas las ya vendidas por completo), no solo las que quedan en el gráfico.
+    if(totalEl){
+      const totalInvertidoArs = todas.reduce((s,t) => s + t.ARS.invertidoActual, 0);
+      const totalInvertidoUsd = todas.reduce((s,t) => s + t.USD.invertidoActual, 0);
+      const partes = [];
+      if(totalInvertidoArs) partes.push(fmt(totalInvertidoArs));
+      if(totalInvertidoUsd) partes.push(fmtUsd(totalInvertidoUsd));
+      totalEl.textContent = todas.length ? ('Invertido total (a precio de compra): ' + (partes.length ? partes.join(' + ') : fmt(0))) : '';
+    }
+    if(gananciaEl){
+      const hayVentas = todas.some(t => t.ARS.cantidadVendida > 0 || t.USD.cantidadVendida > 0);
+      if(hayVentas){
+        const gananciaArs = todas.reduce((s,t) => s + t.gananciaTotalArs, 0);
+        const gananciaUsd = todas.reduce((s,t) => s + t.gananciaTotalUsd, 0);
+        const partesG = [];
+        if(gananciaArs) partesG.push((gananciaArs>=0?'+':'−')+fmt(Math.abs(gananciaArs)));
+        if(gananciaUsd) partesG.push((gananciaUsd>=0?'+':'−')+fmtUsd(Math.abs(gananciaUsd)));
+        gananciaEl.textContent = 'Ganancia realizada (vendido): ' + (partesG.length ? partesG.join(' + ') : fmt(0));
+      }else{
+        gananciaEl.textContent = '';
+      }
+    }
+
+    if(tenencias.length === 0){
+      if(accionesChart){ accionesChart.destroy(); accionesChart = null; }
+      if(wrap) wrap.setAttribute('data-empty','true');
+      const legendEl = document.getElementById('accionesLegend');
+      if(legendEl) legendEl.innerHTML = '';
+      return;
+    }
+    if(wrap) wrap.removeAttribute('data-empty');
+
+    const totalAcciones = tenencias.reduce((s,t) => s + t.cantidadTotalActual, 0);
+    const colores = tenencias.map((t,i) => colorParaEmpresa(t.empresa, i));
+
+    if(accionesChart) accionesChart.destroy();
+    accionesChart = new Chart(canvas, {
+      type:'pie',
+      data:{
+        labels: tenencias.map(t => t.empresa),
+        datasets:[{
+          data: tenencias.map(t => t.cantidadTotalActual),
+          backgroundColor: colores,
+          borderColor: '#1c2028',
+          borderWidth: 2,
+        }],
+      },
+      options:{
+        responsive:true,
+        maintainAspectRatio:false,
+        plugins:{
+          legend:{ display:false },
+          tooltip:{
+            callbacks:{
+              label:(ctx)=>{
+                const cantidad = ctx.parsed;
+                const pct = totalAcciones ? (cantidad / totalAcciones * 100) : 0;
+                return ctx.label + ': ' + cantidad + ' acción' + (cantidad===1?'':'es') + ' (' + pct.toFixed(1) + '%)';
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const legendEl = document.getElementById('accionesLegend');
+    if(legendEl){
+      legendEl.innerHTML = tenencias.map((t,i) => {
+        const pct = totalAcciones ? (t.cantidadTotalActual / totalAcciones * 100) : 0;
+        return '<span><span class="dot" style="background:'+colores[i]+'"></span>'+t.empresa+' · '+pct.toFixed(1)+'%</span>';
+      }).join('');
+    }
+  }
+
+  function renderAccionesTenencias(){
+    const listEl = document.getElementById('accionesTenenciasList');
+    if(!listEl) return;
+    const tenencias = agruparTenencias().filter(t => t.cantidadTotalActual > 0 || t.ARS.cantidadVendida > 0 || t.USD.cantidadVendida > 0);
+    if(tenencias.length === 0){
+      listEl.innerHTML = '<p class="log-empty">Todavía no cargaste acciones.</p>';
+      return;
+    }
+    const totalActual = tenencias.reduce((s,t) => s + t.cantidadTotalActual, 0);
+    listEl.innerHTML = tenencias.map(t => {
+      const cerrada = t.cantidadTotalActual === 0;
+      const pct = (!cerrada && totalActual) ? (t.cantidadTotalActual / totalActual * 100) : 0;
+
+      const partesInvertido = [];
+      if(t.ARS.invertidoActual) partesInvertido.push(fmt(t.ARS.invertidoActual));
+      if(t.USD.invertidoActual) partesInvertido.push(fmtUsd(t.USD.invertidoActual));
+      const invertidoTexto = partesInvertido.length ? partesInvertido.join(' + ') : fmt(0);
+
+      const precioPromArs = t.ARS.cantidadComprada ? fmt(t.ARS.precioProm) + '/acción (ARS)' : '';
+      const precioPromUsd = t.USD.cantidadComprada ? fmtUsd(t.USD.precioProm) + '/acción (USD)' : '';
+      const precioProm = [precioPromArs, precioPromUsd].filter(Boolean).join(' · ');
+
+      const partesGanancia = [];
+      if(t.ARS.cantidadVendida) partesGanancia.push((t.gananciaTotalArs>=0?'+':'−')+fmt(Math.abs(t.gananciaTotalArs)));
+      if(t.USD.cantidadVendida) partesGanancia.push((t.gananciaTotalUsd>=0?'+':'−')+fmtUsd(Math.abs(t.gananciaTotalUsd)));
+      const gananciaTexto = partesGanancia.length ? (' · Ganancia realizada: '+partesGanancia.join(' + ')) : '';
+
+      const estadoTexto = cerrada
+        ? 'Posición cerrada (vendida por completo)'
+        : (pct.toFixed(1)+'% de la cartera · '+t.cantidadTotalActual+' acc. actuales');
+
+      const venderBtn = !cerrada
+        ? '<button type="button" class="ghost vender-accion-btn" data-empresa="'+t.empresa+'">Vender</button>'
+        : '';
+
+      return '<div class="gasto-item '+(cerrada?'egreso':'ingreso')+'">'
+        + '<div class="gasto-item-info">'
+        +   '<span class="gasto-item-desc">'+t.empresa+'</span>'
+        +   '<span class="gasto-item-date">'+estadoTexto+' · Invertido: '+invertidoTexto+(precioProm ? ' · '+precioProm : '')+gananciaTexto+'</span>'
+        + '</div>'
+        + '<div class="gasto-item-actions">'+venderBtn+'</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function renderAccionesMovimientos(){
+    const listEl = document.getElementById('accionesList');
+    if(!listEl) return;
+    const compras = allAcciones.filter(a => !esVenta(a));
+    if(compras.length === 0){
+      listEl.innerHTML = '<p class="log-empty">Todavía no cargaste compras de acciones.</p>';
+      return;
+    }
+    listEl.innerHTML = compras.map(a => {
+      const montoFmt = a.moneda === 'USD' ? fmtUsd(a.precio) : fmt(a.precio);
+      const totalFmt = a.moneda === 'USD' ? fmtUsd(a.precio * a.cantidad) : fmt(a.precio * a.cantidad);
+      return '<div class="gasto-item ingreso" data-id="'+a.id+'">'
+        + '<div class="gasto-item-info">'
+        +   '<span class="gasto-item-desc">'+a.empresa+' <span class="gasto-item-moneda">'+a.moneda+'</span></span>'
+        +   '<span class="gasto-item-date">'+a.fecha+' · '+a.cantidad+' acc. a '+montoFmt+' · Total '+totalFmt+'</span>'
+        + '</div>'
+        + '<div class="gasto-item-actions">'
+        +   '<button class="gasto-delete" data-id="'+a.id+'" aria-label="Eliminar compra">✕</button>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function renderAccionesVentas(){
+    const listEl = document.getElementById('accionesVentasList');
+    if(!listEl) return;
+    const ventas = allAcciones.filter(a => esVenta(a));
+    if(ventas.length === 0){
+      listEl.innerHTML = '<p class="log-empty">Todavía no vendiste acciones.</p>';
+      return;
+    }
+    const tenencias = agruparTenencias();
+    listEl.innerHTML = ventas.map(a => {
+      const t = tenencias.find(x => x.empresa === a.empresa);
+      const precioProm = t ? t[a.moneda === 'USD' ? 'USD' : 'ARS'].precioProm : 0;
+      const ganancia = (a.precio - precioProm) * a.cantidad;
+      const montoFmt = a.moneda === 'USD' ? fmtUsd(a.precio) : fmt(a.precio);
+      const totalFmt = a.moneda === 'USD' ? fmtUsd(a.precio * a.cantidad) : fmt(a.precio * a.cantidad);
+      const gananciaFmt = a.moneda === 'USD' ? fmtUsd(Math.abs(ganancia)) : fmt(Math.abs(ganancia));
+      const sign = ganancia >= 0 ? '+' : '−';
+      return '<div class="gasto-item '+(ganancia>=0?'ingreso':'egreso')+'" data-id="'+a.id+'">'
+        + '<div class="gasto-item-info">'
+        +   '<span class="gasto-item-desc">'+a.empresa+' <span class="gasto-item-moneda">'+a.moneda+'</span></span>'
+        +   '<span class="gasto-item-date">'+a.fecha+' · '+a.cantidad+' acc. a '+montoFmt+' · Total '+totalFmt+'</span>'
+        + '</div>'
+        + '<div class="gasto-item-actions">'
+        +   '<span class="gasto-item-amount">'+sign+' '+gananciaFmt+'</span>'
+        +   '<button class="gasto-delete" data-id="'+a.id+'" aria-label="Eliminar venta">✕</button>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function renderAcciones(){
+    renderAccionesChart();
+    renderAccionesTenencias();
+    renderAccionesMovimientos();
+    renderAccionesVentas();
+  }
+
+  function initAccionesSync(){
+    accionesRef.onSnapshot((snapshot)=>{
+      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      allAcciones = ordenarAcciones(items);
+      renderAcciones();
+    }, (err)=> console.error('Error sincronizando acciones', err));
+  }
+
+  function initAccionesForm(){
+    const form = document.getElementById('accionForm');
+    if(!form) return;
+    const empresaInput = document.getElementById('accionEmpresa');
+    const cantidadInput = document.getElementById('accionCantidad');
+    const precioInput = document.getElementById('accionPrecio');
+    const fechaInput = document.getElementById('accionFecha');
+    const monedaToggle = document.getElementById('accionMonedaToggle');
+    let monedaSeleccionada = 'ARS';
+
+    fechaInput.value = new Date().toISOString().slice(0,10);
+
+    // El nombre de la empresa se guarda siempre en mayúsculas, para que no
+    // queden tenencias separadas por escribir "ypf" una vez y "YPF" otra.
+    empresaInput.addEventListener('input', ()=>{
+      const pos = empresaInput.selectionStart;
+      empresaInput.value = empresaInput.value.toUpperCase();
+      empresaInput.setSelectionRange(pos, pos);
+    });
+
+    monedaToggle.addEventListener('click', (ev)=>{
+      const btn = ev.target.closest('.type-btn');
+      if(!btn) return;
+      monedaSeleccionada = btn.dataset.moneda;
+      monedaToggle.querySelectorAll('.type-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      precioInput.placeholder = monedaSeleccionada === 'USD' ? 'Precio por acción en USD' : 'Precio por acción en ARS';
+    });
+
+    form.addEventListener('submit', (ev)=>{
+      ev.preventDefault();
+      const empresa = empresaInput.value.trim().toUpperCase();
+      const cantidad = parseFloat(cantidadInput.value);
+      const precio = parseFloat(precioInput.value);
+      const fecha = fechaInput.value || new Date().toISOString().slice(0,10);
+      if(!empresa || !cantidad || cantidad <= 0 || !precio || precio <= 0) return;
+
+      accionesRef.add({
+        empresa, cantidad, precio, moneda: monedaSeleccionada, fecha, tipo:'compra',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }).catch((e)=> console.error('No se pudo guardar la compra de acciones', e));
+
+      form.reset();
+      fechaInput.value = new Date().toISOString().slice(0,10);
+      monedaSeleccionada = 'ARS';
+      monedaToggle.querySelectorAll('.type-btn').forEach(b=>b.classList.remove('active'));
+      monedaToggle.querySelector('[data-moneda="ARS"]').classList.add('active');
+      precioInput.placeholder = 'Precio por acción en ARS';
+    });
+
+    document.getElementById('accionesList').addEventListener('click', (ev)=>{
+      const btn = ev.target.closest('.gasto-delete');
+      if(!btn) return;
+      const confirmado = window.confirm('¿Estás seguro que desea eliminar esta compra?');
+      if(!confirmado) return;
+      accionesRef.doc(btn.dataset.id).delete()
+        .catch((e)=> console.error('No se pudo eliminar la compra', e));
+    });
+
+    document.getElementById('accionesVentasList').addEventListener('click', (ev)=>{
+      const btn = ev.target.closest('.gasto-delete');
+      if(!btn) return;
+      const confirmado = window.confirm('¿Estás seguro que desea eliminar esta venta?');
+      if(!confirmado) return;
+      accionesRef.doc(btn.dataset.id).delete()
+        .catch((e)=> console.error('No se pudo eliminar la venta', e));
+    });
+  }
+
+  function initVentaAccionPanel(){
+    const tenenciasListEl = document.getElementById('accionesTenenciasList');
+    const panel = document.getElementById('ventaAccionPanel');
+    const panelNombre = document.getElementById('ventaAccionNombre');
+    const monedaToggle = document.getElementById('ventaAccionMonedaToggle');
+    const cantidadInput = document.getElementById('ventaAccionCantidad');
+    const precioInput = document.getElementById('ventaAccionPrecio');
+    const fechaInput = document.getElementById('ventaAccionFecha');
+    const confirmarBtn = document.getElementById('ventaAccionConfirmar');
+    const cancelarBtn = document.getElementById('ventaAccionCancelar');
+    if(!tenenciasListEl || !panel) return;
+    let monedaSeleccionada = 'ARS';
+
+    function cerrarPanel(){
+      ventaAccionEmpresa = null;
+      panel.setAttribute('hidden','');
+    }
+
+    function actualizarDisponible(){
+      const tenencia = agruparTenencias().find(t => t.empresa === ventaAccionEmpresa);
+      const disponible = tenencia ? tenencia[monedaSeleccionada].cantidadActual : 0;
+      panelNombre.textContent = ventaAccionEmpresa + ' · disponibles: ' + disponible + ' acc. (' + monedaSeleccionada + ')';
+      return disponible;
+    }
+
+    tenenciasListEl.addEventListener('click', (ev)=>{
+      const btn = ev.target.closest('.vender-accion-btn');
+      if(!btn) return;
+      ventaAccionEmpresa = btn.dataset.empresa;
+      const tenencia = agruparTenencias().find(t => t.empresa === ventaAccionEmpresa);
+      // Preseleccionar la moneda en la que efectivamente tiene acciones.
+      monedaSeleccionada = (tenencia && tenencia.ARS.cantidadActual > 0) ? 'ARS' : 'USD';
+      monedaToggle.querySelectorAll('.type-btn').forEach(b=>b.classList.toggle('active', b.dataset.moneda === monedaSeleccionada));
+      cantidadInput.value = '';
+      precioInput.value = '';
+      fechaInput.value = new Date().toISOString().slice(0,10);
+      actualizarDisponible();
+      panel.removeAttribute('hidden');
+      cantidadInput.focus();
+    });
+
+    monedaToggle.addEventListener('click', (ev)=>{
+      const btn = ev.target.closest('.type-btn');
+      if(!btn) return;
+      monedaSeleccionada = btn.dataset.moneda;
+      monedaToggle.querySelectorAll('.type-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      actualizarDisponible();
+    });
+
+    cancelarBtn.addEventListener('click', cerrarPanel);
+
+    confirmarBtn.addEventListener('click', ()=>{
+      if(!ventaAccionEmpresa) return;
+      const cantidad = parseFloat(cantidadInput.value);
+      const precio = parseFloat(precioInput.value);
+      const fecha = fechaInput.value || new Date().toISOString().slice(0,10);
+      const disponible = actualizarDisponible();
+      if(!cantidad || cantidad <= 0){ alert('Ingresá una cantidad válida.'); return; }
+      if(cantidad > disponible){ alert('No podés vender más acciones de las que tenés ('+disponible+' disponibles en '+monedaSeleccionada+').'); return; }
+      if(!precio || precio <= 0){ alert('Ingresá un precio de venta válido.'); return; }
+
+      accionesRef.add({
+        empresa: ventaAccionEmpresa, cantidad, precio, moneda: monedaSeleccionada, fecha, tipo:'venta',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      }).then(()=> cerrarPanel())
+        .catch((e)=> console.error('No se pudo registrar la venta', e));
+    });
+  }
+
   // ---------- Navegación ----------
 
   function initNav(){
@@ -1428,6 +1827,7 @@
       ahorros: { title:'Ahorros', eyebrow:'Tu ahorro' },
       gastosmes: { title:'Mis gastos', eyebrow:'Gastos del mes' },
       negocio: { title:'Paletas', eyebrow:'Stock y reventa' },
+      acciones: { title:'Acciones', eyebrow:'Cartera de acciones' },
       cotizaciones: { title:'Pizarra del dólar', eyebrow:'Cotizaciones · Argentina' },
     };
 
@@ -1447,6 +1847,7 @@
       document.getElementById('view-ahorros').toggleAttribute('hidden', view !== 'ahorros');
       document.getElementById('view-gastosmes').toggleAttribute('hidden', view !== 'gastosmes');
       document.getElementById('view-negocio').toggleAttribute('hidden', view !== 'negocio');
+      document.getElementById('view-acciones').toggleAttribute('hidden', view !== 'acciones');
       document.getElementById('view-cotizaciones').toggleAttribute('hidden', view !== 'cotizaciones');
       const meta = viewMeta[view] || viewMeta.ahorros;
       pageTitle.textContent = meta.title;
@@ -1488,6 +1889,9 @@
     initVentaPanel();
     initNegocioRangeToggle();
     initAhorrosRangeToggle();
+    initAccionesSync();
+    initAccionesForm();
+    initVentaAccionPanel();
     fetchAll();
     setInterval(fetchAll, POLL_MS);
   }
