@@ -782,7 +782,17 @@
 
   function renderStock(){
     const enStock = allProductos.filter(p => p.estado !== 'vendido');
-    const vendidos = allProductos.filter(p => p.estado === 'vendido');
+    // Los vendidos se ordenan por fecha de venta (no por fecha de compra, que es
+    // el orden que trae allProductos), de la más reciente a la más antigua.
+    const vendidos = allProductos
+      .filter(p => p.estado === 'vendido')
+      .slice()
+      .sort((a,b) => {
+        const fa = a.fechaVenta || '';
+        const fb = b.fechaVenta || '';
+        if(fa !== fb) return fb.localeCompare(fa);
+        return sortKeyMillis(b) - sortKeyMillis(a);
+      });
 
     const sumBy = (arr, moneda, field) => arr
       .filter(p => p.moneda === moneda)
