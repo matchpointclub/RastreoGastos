@@ -437,6 +437,37 @@ h1{
 .legend span{display:flex;align-items:center;gap:6px;}
 .dot{width:8px;height:8px;border-radius:2px;display:inline-block;}
 
+.pagination{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-wrap:wrap;
+  gap:6px;
+  margin:14px 0 6px;
+}
+.pagination:empty{ display:none; }
+.page-btn{
+  background:transparent;
+  border:1px solid var(--board-line);
+  color:var(--cream-dim);
+  font-size:13px;
+  min-width:34px;
+  height:34px;
+  padding:0 10px;
+  border-radius:8px;
+  cursor:pointer;
+}
+.page-btn:hover:not(:disabled):not(.active){ color:var(--cream); border-color:var(--cream-dim); }
+.page-btn.active{
+  background:var(--cream);
+  border-color:var(--cream);
+  color:var(--board-bg);
+  font-weight:700;
+  cursor:default;
+}
+.page-btn:disabled{ opacity:.35; cursor:default; }
+.page-dots{ color:var(--cream-dim); padding:0 2px; }
+
 .acciones-chart-wrap{
   background:var(--board-panel);
   border:1px solid var(--board-line);

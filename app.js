@@ -525,6 +525,78 @@
     updateNotifStatusText();
   });
 
+  // ---------- Paginación genérica (15 filas por página, estilo Google) ----------
+
+  const PAGE_SIZE = 15;
+  const paginaActual = {}; // { listId: número de página actual }
+  const listRenderers = {}; // { listId: función que vuelve a renderizar esa lista }
+
+  // Dibuja hasta `items.length` filas (vía itemHtmlFn) recortadas a la página
+  // actual de `listId`, y arma los controles de paginación debajo (si el
+  // contenedor con id `listId+'Pagination'` existe en el HTML).
+  function renderPaginado(listId, items, itemHtmlFn, emptyHtml){
+    const listEl = document.getElementById(listId);
+    if(!listEl) return;
+    const pagEl = document.getElementById(listId + 'Pagination');
+
+    if(items.length === 0){
+      listEl.innerHTML = emptyHtml;
+      if(pagEl) pagEl.innerHTML = '';
+      paginaActual[listId] = 1;
+      return;
+    }
+
+    const totalPaginas = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+    let pagina = paginaActual[listId] || 1;
+    if(pagina > totalPaginas) pagina = totalPaginas;
+    if(pagina < 1) pagina = 1;
+    paginaActual[listId] = pagina;
+
+    const inicio = (pagina - 1) * PAGE_SIZE;
+    listEl.innerHTML = items.slice(inicio, inicio + PAGE_SIZE).map(itemHtmlFn).join('');
+
+    if(pagEl) pagEl.innerHTML = construirPaginacionHtml(pagina, totalPaginas);
+  }
+
+  function construirPaginacionHtml(pagina, totalPaginas){
+    if(totalPaginas <= 1) return '';
+    const VENTANA = 2; // páginas visibles a cada lado de la actual
+    let inicio = Math.max(1, pagina - VENTANA);
+    let fin = Math.min(totalPaginas, pagina + VENTANA);
+    if(fin - inicio < VENTANA * 2){
+      if(inicio === 1) fin = Math.min(totalPaginas, inicio + VENTANA * 2);
+      else if(fin === totalPaginas) inicio = Math.max(1, fin - VENTANA * 2);
+    }
+    let html = '<button type="button" class="page-btn page-prev" data-page="'+(pagina-1)+'"'+(pagina<=1?' disabled':'')+'>‹ Anterior</button>';
+    if(inicio > 1){
+      html += '<button type="button" class="page-btn" data-page="1">1</button>';
+      if(inicio > 2) html += '<span class="page-dots">…</span>';
+    }
+    for(let p = inicio; p <= fin; p++){
+      html += '<button type="button" class="page-btn'+(p===pagina?' active':'')+'" data-page="'+p+'">'+p+'</button>';
+    }
+    if(fin < totalPaginas){
+      if(fin < totalPaginas - 1) html += '<span class="page-dots">…</span>';
+      html += '<button type="button" class="page-btn" data-page="'+totalPaginas+'">'+totalPaginas+'</button>';
+    }
+    html += '<button type="button" class="page-btn page-next" data-page="'+(pagina+1)+'"'+(pagina>=totalPaginas?' disabled':'')+'>Siguiente ›</button>';
+    return html;
+  }
+
+  document.addEventListener('click', (ev)=>{
+    const btn = ev.target.closest('.page-btn');
+    if(!btn || btn.hasAttribute('disabled')) return;
+    const pagEl = btn.closest('.pagination');
+    if(!pagEl) return;
+    const listId = pagEl.dataset.for;
+    const pagina = parseInt(btn.dataset.page, 10);
+    if(!listId || !pagina || isNaN(pagina)) return;
+    paginaActual[listId] = pagina;
+    const renderFn = listRenderers[listId];
+    if(renderFn) renderFn();
+    pagEl.scrollIntoView({ block:'nearest' });
+  });
+
   // ---------- Movimientos: Ahorros y Gastos (dos billeteras independientes) ----------
 
   let allMovimientos = [];
@@ -639,12 +711,7 @@
         ? 'Total ahorrado (pesos + dólares al blue promedio): ' + fmt(totalArs + totalUsd * rate)
         : '';
 
-      const list = document.getElementById(ids.list);
-      if(movs.length === 0){
-        list.innerHTML = '<p class="log-empty">Todavía no cargaste movimientos.</p>';
-        return;
-      }
-      list.innerHTML = movs.map(m => {
+      renderPaginado(ids.list, movs, (m)=>{
         const sign = m.tipo === 'ingreso' ? '+' : '−';
         const montoFmt = m.moneda === 'USD' ? fmtUsd(m.monto) : fmt(m.monto);
         return '<div class="gasto-item '+m.tipo+'" data-id="'+m.id+'">'
@@ -657,8 +724,10 @@
           +   '<button class="gasto-delete" data-id="'+m.id+'" aria-label="Eliminar movimiento">✕</button>'
           + '</div>'
           + '</div>';
-      }).join('');
+      }, '<p class="log-empty">Todavía no cargaste movimientos.</p>');
     }
+
+    listRenderers[ids.list] = render;
 
     function initForm(){
       const form = document.getElementById(ids.form);
@@ -819,58 +888,52 @@
 
     const stockListEl = document.getElementById('stockList');
     if(stockListEl){
-      if(enStock.length === 0){
-        stockListEl.innerHTML = '<p class="log-empty">Todavía no cargaste artículos en stock.</p>';
-      }else{
-        const limiteDias = parseInt(thresholds.stockDiasAlerta, 10);
-        stockListEl.innerHTML = enStock.map(p => {
-          const montoFmt = p.moneda === 'USD' ? fmtUsd(p.costo) : fmt(p.costo);
-          const dias = diasEnStockDe(p);
-          let diasTexto = '';
-          if(dias != null){
-            const diasLabel = dias+' día'+(dias===1?'':'s')+' en stock';
-            const estancado = limiteDias && dias >= limiteDias;
-            diasTexto = ' · ' + (estancado ? '<span class="egr">'+diasLabel+'</span>' : diasLabel);
-          }
-          return '<div class="gasto-item egreso" data-id="'+p.id+'">'
-            + '<div class="gasto-item-info">'
-            +   '<span class="gasto-item-desc">'+p.nombre+' <span class="gasto-item-moneda">'+p.moneda+'</span></span>'
-            +   '<span class="gasto-item-date">Comprado '+(p.fechaCompra||'')+' · Costo '+montoFmt+diasTexto+'</span>'
-            + '</div>'
-            + '<div class="gasto-item-actions">'
-            +   '<button type="button" class="ghost vender-btn" data-id="'+p.id+'">Vender</button>'
-            +   '<button type="button" class="gasto-delete" data-id="'+p.id+'" aria-label="Eliminar artículo">✕</button>'
-            + '</div>'
-            + '</div>';
-        }).join('');
-      }
+      const limiteDias = parseInt(thresholds.stockDiasAlerta, 10);
+      renderPaginado('stockList', enStock, (p)=>{
+        const montoFmt = p.moneda === 'USD' ? fmtUsd(p.costo) : fmt(p.costo);
+        const dias = diasEnStockDe(p);
+        let diasTexto = '';
+        if(dias != null){
+          const diasLabel = dias+' día'+(dias===1?'':'s')+' en stock';
+          const estancado = limiteDias && dias >= limiteDias;
+          diasTexto = ' · ' + (estancado ? '<span class="egr">'+diasLabel+'</span>' : diasLabel);
+        }
+        return '<div class="gasto-item egreso" data-id="'+p.id+'">'
+          + '<div class="gasto-item-info">'
+          +   '<span class="gasto-item-desc">'+p.nombre+' <span class="gasto-item-moneda">'+p.moneda+'</span></span>'
+          +   '<span class="gasto-item-date">Comprado '+(p.fechaCompra||'')+' · Costo '+montoFmt+diasTexto+'</span>'
+          + '</div>'
+          + '<div class="gasto-item-actions">'
+          +   '<button type="button" class="ghost vender-btn" data-id="'+p.id+'">Vender</button>'
+          +   '<button type="button" class="gasto-delete" data-id="'+p.id+'" aria-label="Eliminar artículo">✕</button>'
+          + '</div>'
+          + '</div>';
+      }, '<p class="log-empty">Todavía no cargaste artículos en stock.</p>');
     }
 
     const vendidosListEl = document.getElementById('vendidosList');
     if(vendidosListEl){
-      if(vendidos.length === 0){
-        vendidosListEl.innerHTML = '<p class="log-empty">Todavía no vendiste nada.</p>';
-      }else{
-        vendidosListEl.innerHTML = vendidos.map(p => {
-          const costoFmt = p.moneda === 'USD' ? fmtUsd(p.costo) : fmt(p.costo);
-          const ventaFmt = p.moneda === 'USD' ? fmtUsd(p.precioVenta || 0) : fmt(p.precioVenta || 0);
-          const ganancia = (p.precioVenta || 0) - (p.costo || 0);
-          const gananciaFmt = p.moneda === 'USD' ? fmtUsd(Math.abs(ganancia)) : fmt(Math.abs(ganancia));
-          const sign = ganancia >= 0 ? '+' : '−';
-          return '<div class="gasto-item ingreso" data-id="'+p.id+'">'
-            + '<div class="gasto-item-info">'
-            +   '<span class="gasto-item-desc">'+p.nombre+' <span class="gasto-item-moneda">'+p.moneda+'</span></span>'
-            +   '<span class="gasto-item-date">Vendido '+(p.fechaVenta||'')+' · '+costoFmt+' → '+ventaFmt+'</span>'
-            + '</div>'
-            + '<div class="gasto-item-actions">'
-            +   '<span class="gasto-item-amount">'+sign+' '+gananciaFmt+'</span>'
-            +   '<button type="button" class="gasto-delete" data-id="'+p.id+'" aria-label="Eliminar artículo">✕</button>'
-            + '</div>'
-            + '</div>';
-        }).join('');
-      }
+      renderPaginado('vendidosList', vendidos, (p)=>{
+        const costoFmt = p.moneda === 'USD' ? fmtUsd(p.costo) : fmt(p.costo);
+        const ventaFmt = p.moneda === 'USD' ? fmtUsd(p.precioVenta || 0) : fmt(p.precioVenta || 0);
+        const ganancia = (p.precioVenta || 0) - (p.costo || 0);
+        const gananciaFmt = p.moneda === 'USD' ? fmtUsd(Math.abs(ganancia)) : fmt(Math.abs(ganancia));
+        const sign = ganancia >= 0 ? '+' : '−';
+        return '<div class="gasto-item ingreso" data-id="'+p.id+'">'
+          + '<div class="gasto-item-info">'
+          +   '<span class="gasto-item-desc">'+p.nombre+' <span class="gasto-item-moneda">'+p.moneda+'</span></span>'
+          +   '<span class="gasto-item-date">Vendido '+(p.fechaVenta||'')+' · '+costoFmt+' → '+ventaFmt+'</span>'
+          + '</div>'
+          + '<div class="gasto-item-actions">'
+          +   '<span class="gasto-item-amount">'+sign+' '+gananciaFmt+'</span>'
+          +   '<button type="button" class="gasto-delete" data-id="'+p.id+'" aria-label="Eliminar artículo">✕</button>'
+          + '</div>'
+          + '</div>';
+      }, '<p class="log-empty">Todavía no vendiste nada.</p>');
     }
   }
+  listRenderers['stockList'] = renderStock;
+  listRenderers['vendidosList'] = renderStock;
 
   function initProductosSync(){
     productosRef.onSnapshot((snapshot)=>{
@@ -1622,11 +1685,7 @@
     const listEl = document.getElementById('accionesList');
     if(!listEl) return;
     const compras = allAcciones.filter(a => !esVenta(a));
-    if(compras.length === 0){
-      listEl.innerHTML = '<p class="log-empty">Todavía no cargaste compras de acciones.</p>';
-      return;
-    }
-    listEl.innerHTML = compras.map(a => {
+    renderPaginado('accionesList', compras, (a)=>{
       const montoFmt = a.moneda === 'USD' ? fmtUsd(a.precio) : fmt(a.precio);
       const totalFmt = a.moneda === 'USD' ? fmtUsd(a.precio * a.cantidad) : fmt(a.precio * a.cantidad);
       return '<div class="gasto-item ingreso" data-id="'+a.id+'">'
@@ -1638,19 +1697,16 @@
         +   '<button class="gasto-delete" data-id="'+a.id+'" aria-label="Eliminar compra">✕</button>'
         + '</div>'
         + '</div>';
-    }).join('');
+    }, '<p class="log-empty">Todavía no cargaste compras de acciones.</p>');
   }
+  listRenderers['accionesList'] = renderAccionesMovimientos;
 
   function renderAccionesVentas(){
     const listEl = document.getElementById('accionesVentasList');
     if(!listEl) return;
     const ventas = allAcciones.filter(a => esVenta(a));
-    if(ventas.length === 0){
-      listEl.innerHTML = '<p class="log-empty">Todavía no vendiste acciones.</p>';
-      return;
-    }
     const tenencias = agruparTenencias();
-    listEl.innerHTML = ventas.map(a => {
+    renderPaginado('accionesVentasList', ventas, (a)=>{
       const t = tenencias.find(x => x.empresa === a.empresa);
       const precioProm = t ? t[a.moneda === 'USD' ? 'USD' : 'ARS'].precioProm : 0;
       const ganancia = (a.precio - precioProm) * a.cantidad;
@@ -1668,8 +1724,9 @@
         +   '<button class="gasto-delete" data-id="'+a.id+'" aria-label="Eliminar venta">✕</button>'
         + '</div>'
         + '</div>';
-    }).join('');
+    }, '<p class="log-empty">Todavía no vendiste acciones.</p>');
   }
+  listRenderers['accionesVentasList'] = renderAccionesVentas;
 
   function renderAcciones(){
     renderAccionesChart();
