@@ -389,22 +389,28 @@
   </section>
 
   <section id="view-gastosmes" class="view" hidden>
-    <div class="wallets">
-      <div class="wallet-card wallet-ars">
-        <span class="wallet-label">Balance en pesos</span>
-        <span class="wallet-value" id="totalArsMes">$ 0</span>
-        <div class="wallet-sub">
-          <span>Ingresos (30d) <b id="ingresosArsMes" class="ing">$ 0</b></span>
-          <span>Gastos (30d) <b id="egresosArsMes" class="egr">$ 0</b></span>
-        </div>
+    <div class="mes-nav">
+      <button type="button" class="ghost mes-nav-btn" id="mesPrev" aria-label="Mes anterior">‹</button>
+      <span class="mes-label" id="mesLabel">—</span>
+      <button type="button" class="ghost mes-nav-btn" id="mesNext" aria-label="Mes siguiente">›</button>
+    </div>
+
+    <div class="mes-cards">
+      <div class="wallet-card mes-ingresos">
+        <span class="wallet-label">Ingresos del mes</span>
+        <span class="wallet-value" id="mesIngArs">$ 0</span>
+        <span class="wallet-equiv" id="mesIngUsd">US$ 0.00</span>
       </div>
-      <div class="wallet-card wallet-usd">
-        <span class="wallet-label">Balance en dólares</span>
-        <span class="wallet-value" id="totalUsdMes">US$ 0</span>
-        <div class="wallet-sub">
-          <span>Ingresos (30d) <b id="ingresosUsdMes" class="ing">US$ 0</b></span>
-          <span>Gastos (30d) <b id="egresosUsdMes" class="egr">US$ 0</b></span>
-        </div>
+      <div class="wallet-card mes-egresos">
+        <span class="wallet-label">Egresos del mes</span>
+        <span class="wallet-value" id="mesEgrArs">$ 0</span>
+        <span class="wallet-equiv" id="mesEgrUsd">US$ 0.00</span>
+      </div>
+      <div class="wallet-card mes-caja">
+        <span class="wallet-label">Caja total</span>
+        <span class="wallet-value" id="cajaArs">$ 0</span>
+        <span class="wallet-equiv" id="cajaUsd">US$ 0.00</span>
+        <span class="wallet-equiv" id="cajaDetalle"></span>
       </div>
     </div>
     <p class="gastos-usd" id="gastosCombinadoMes"></p>
@@ -428,10 +434,15 @@
       <button type="submit" class="primary">Agregar movimiento</button>
     </form>
 
-    <div class="gasto-list" id="gastoListMes">
-      <p class="log-empty">Todavía no cargaste movimientos.</p>
+    <p class="section-title">Ingresos del mes</p>
+    <div class="gasto-list" id="gastoListMesIng">
+      <p class="log-empty">No hay ingresos en este mes.</p>
     </div>
-    <div class="pagination" id="gastoListMesPagination" data-for="gastoListMes"></div>
+
+    <p class="section-title" style="margin-top:20px;">Egresos del mes</p>
+    <div class="gasto-list" id="gastoListMesEgr">
+      <p class="log-empty">No hay egresos en este mes.</p>
+    </div>
 
     <div class="backup-row">
       <button class="ghost" id="exportBtnMes">Exportar datos</button>
@@ -439,9 +450,11 @@
       <input type="file" id="importFileMes" accept="application/json" hidden>
     </div>
     <p class="foot-note">
-      Cargá acá tu ingreso mensual y tus gastos del mes para ver cuánto te va quedando. Es una
-      billetera totalmente separada de tus Ahorros: nada de lo que registres acá afecta el total
-      que ves en esa sección. Se guarda en la nube (Firebase) y se sincroniza entre tus dispositivos.
+      Cada mes es una sección: con las flechas navegás entre meses y ves los ingresos y egresos
+      de ese mes. La caja total arrastra lo que te sobró (o faltó) de los meses anteriores, así
+      que lo que te quedó en agosto ya está sumado cuando mirás septiembre. Es una billetera
+      totalmente separada de tus Ahorros. Se guarda en la nube (Firebase) y se sincroniza entre
+      tus dispositivos.
     </p>
   </section>
 

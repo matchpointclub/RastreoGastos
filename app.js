@@ -629,6 +629,117 @@
     });
   }
 
+  // ---------- Gastos por mes: ingresos / egresos del mes + CAJA TOTAL acumulada ----------
+
+  const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  let gastosMesSeleccionado = todayKey().slice(0,7);
+
+  function mesKeyDe(fecha){ return (fecha || '').slice(0,7); }
+
+  function etiquetaMes(mesKey){
+    const partes = mesKey.split('-');
+    return MESES_ES[parseInt(partes[1], 10) - 1] + ' ' + partes[0];
+  }
+
+  function desplazarMes(mesKey, delta){
+    const partes = mesKey.split('-').map(Number);
+    const d = new Date(partes[0], partes[1] - 1 + delta, 1);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2,'0');
+  }
+
+  function renderGastosMes(){
+    if(!document.getElementById('mesLabel')) return;
+    const movs = allMovimientos.filter(m => getSeccion(m) === 'gasto');
+    const hoyMes = todayKey().slice(0,7);
+
+    // El selector va desde el primer mes con movimientos hasta el mes actual
+    // (o hasta el último mes con movimientos cargados, si es posterior).
+    const mesesConDatos = movs.map(m => mesKeyDe(m.fecha)).filter(Boolean).sort();
+    let minMes = hoyMes, maxMes = hoyMes;
+    if(mesesConDatos.length){
+      if(mesesConDatos[0] < minMes) minMes = mesesConDatos[0];
+      if(mesesConDatos[mesesConDatos.length - 1] > maxMes) maxMes = mesesConDatos[mesesConDatos.length - 1];
+    }
+    if(gastosMesSeleccionado < minMes) gastosMesSeleccionado = minMes;
+    if(gastosMesSeleccionado > maxMes) gastosMesSeleccionado = maxMes;
+    const mes = gastosMesSeleccionado;
+
+    // Por moneda: lo que viene de meses anteriores (arrastre), los ingresos y
+    // egresos del mes elegido, y la caja total = arrastre + ingresos − egresos.
+    const calcular = (moneda) => {
+      let arrastre = 0, ingresos = 0, egresos = 0;
+      movs.forEach(m => {
+        if(m.moneda !== moneda) return;
+        const k = mesKeyDe(m.fecha);
+        const signo = m.tipo === 'ingreso' ? 1 : -1;
+        if(k < mes) arrastre += signo * m.monto;
+        else if(k === mes){
+          if(signo > 0) ingresos += m.monto;
+          else egresos += m.monto;
+        }
+      });
+      return { arrastre, ingresos, egresos, caja: arrastre + ingresos - egresos };
+    };
+    const ars = calcular('ARS');
+    const usd = calcular('USD');
+
+    document.getElementById('mesLabel').textContent = etiquetaMes(mes);
+    document.getElementById('mesPrev').disabled = mes <= minMes;
+    document.getElementById('mesNext').disabled = mes >= maxMes;
+
+    document.getElementById('mesIngArs').textContent = fmt(ars.ingresos);
+    document.getElementById('mesIngUsd').textContent = fmtUsd(usd.ingresos);
+    document.getElementById('mesEgrArs').textContent = fmt(ars.egresos);
+    document.getElementById('mesEgrUsd').textContent = fmtUsd(usd.egresos);
+    document.getElementById('cajaArs').textContent = fmt(ars.caja);
+    document.getElementById('cajaUsd').textContent = fmtUsd(usd.caja);
+    document.getElementById('cajaDetalle').textContent =
+      'Viene de meses anteriores: ' + fmt(ars.arrastre) + ' + ' + fmtUsd(usd.arrastre);
+
+    const rate = blueAvgRate();
+    document.getElementById('gastosCombinadoMes').textContent = rate
+      ? 'Caja total (pesos + dólares al blue promedio): ' + fmt(ars.caja + usd.caja * rate)
+      : '';
+
+    const itemHtml = (m) => {
+      const sign = m.tipo === 'ingreso' ? '+' : '−';
+      const montoFmt = m.moneda === 'USD' ? fmtUsd(m.monto) : fmt(m.monto);
+      return '<div class="gasto-item '+m.tipo+'" data-id="'+m.id+'">'
+        + '<div class="gasto-item-info">'
+        +   '<span class="gasto-item-desc">'+m.desc+' <span class="gasto-item-moneda">'+m.moneda+'</span></span>'
+        +   '<span class="gasto-item-date">'+m.fecha+'</span>'
+        + '</div>'
+        + '<div class="gasto-item-actions">'
+        +   '<span class="gasto-item-amount">'+sign+' '+montoFmt+'</span>'
+        +   '<button class="gasto-delete" data-id="'+m.id+'" aria-label="Eliminar movimiento">✕</button>'
+        + '</div>'
+        + '</div>';
+    };
+    const delMes = movs.filter(m => mesKeyDe(m.fecha) === mes);
+    const ingresosMes = delMes.filter(m => m.tipo === 'ingreso');
+    const egresosMes = delMes.filter(m => m.tipo !== 'ingreso');
+    document.getElementById('gastoListMesIng').innerHTML = ingresosMes.length
+      ? ingresosMes.map(itemHtml).join('')
+      : '<p class="log-empty">No hay ingresos en este mes.</p>';
+    document.getElementById('gastoListMesEgr').innerHTML = egresosMes.length
+      ? egresosMes.map(itemHtml).join('')
+      : '<p class="log-empty">No hay egresos en este mes.</p>';
+  }
+
+  function initGastosMesNav(){
+    const prev = document.getElementById('mesPrev');
+    const next = document.getElementById('mesNext');
+    if(!prev || !next) return;
+    prev.addEventListener('click', ()=>{
+      gastosMesSeleccionado = desplazarMes(gastosMesSeleccionado, -1);
+      renderGastosMes();
+    });
+    next.addEventListener('click', ()=>{
+      gastosMesSeleccionado = desplazarMes(gastosMesSeleccionado, 1);
+      renderGastosMes();
+    });
+  }
+
   const SECCION_IDS = {
     ahorro: {
       totalArs:'totalArs', ingresosArs:'ingresosArs', egresosArs:'egresosArs',
@@ -640,12 +751,13 @@
       arsEquiv:'arsEquivUsd', usdEquiv:'usdEquivArs',
     },
     gasto: {
-      totalArs:'totalArsMes', ingresosArs:'ingresosArsMes', egresosArs:'egresosArsMes',
-      totalUsd:'totalUsdMes', ingresosUsd:'ingresosUsdMes', egresosUsd:'egresosUsdMes',
-      combinado:'gastosCombinadoMes', list:'gastoListMes',
+      // Esta sección se dibuja con renderGastosMes() (por mes), no con el render genérico.
+      list:'gastoListMesIng', extraLists:['gastoListMesEgr'],
       form:'gastoFormMes', monedaToggle:'gastoMonedaToggleMes', typeToggle:'gastoTypeToggleMes',
       desc:'gastoDescMes', monto:'gastoMontoMes', fecha:'gastoFechaMes',
       exportBtn:'exportBtnMes', importBtn:'importBtnMes', importFile:'importFileMes',
+      // Al cargar un movimiento, se muestra el mes de su fecha para que lo veas enseguida.
+      onAdded:(fecha)=>{ gastosMesSeleccionado = mesKeyDe(fecha) || gastosMesSeleccionado; renderGastosMes(); },
     },
     negocio: {
       totalArs:'totalArsNeg', ingresosArs:'ingresosArsNeg', egresosArs:'egresosArsNeg',
@@ -667,6 +779,7 @@
     }
 
     function render(){
+      if(seccionKey === 'gasto'){ renderGastosMes(); return; }
       const movs = movimientosDeSeccion();
       const porMoneda = (moneda, tipo) => movs
         .filter(m => m.moneda === moneda && m.tipo === tipo)
@@ -734,7 +847,9 @@
       const typeToggle = document.getElementById(ids.typeToggle);
       const monedaToggle = document.getElementById(ids.monedaToggle);
       const fechaInput = document.getElementById(ids.fecha);
-      fechaInput.value = new Date().toISOString().slice(0,10);
+      // Fecha local (no UTC): de noche, toISOString() ya devuelve el día siguiente
+      // en Argentina, y con gastos por mes eso podría mandar el movimiento al mes equivocado.
+      fechaInput.value = todayKey();
 
       typeToggle.addEventListener('click', (ev)=>{
         const btn = ev.target.closest('.type-btn');
@@ -757,7 +872,7 @@
         ev.preventDefault();
         const desc = document.getElementById(ids.desc).value.trim();
         const monto = parseFloat(document.getElementById(ids.monto).value);
-        const fecha = fechaInput.value || new Date().toISOString().slice(0,10);
+        const fecha = fechaInput.value || todayKey();
         if(!desc || !monto || monto <= 0) return;
 
         movimientosRef.add({
@@ -765,16 +880,19 @@
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         }).catch((e)=> console.error('No se pudo guardar el movimiento', e));
         form.reset();
-        fechaInput.value = new Date().toISOString().slice(0,10);
+        fechaInput.value = todayKey();
+        if(ids.onAdded) ids.onAdded(fecha);
       });
 
-      document.getElementById(ids.list).addEventListener('click', (ev)=>{
-        const btn = ev.target.closest('.gasto-delete');
-        if(!btn) return;
-        const confirmado = window.confirm('¿Estás seguro que desea eliminar este movimiento?');
-        if(!confirmado) return;
-        movimientosRef.doc(btn.dataset.id).delete()
-          .catch((e)=> console.error('No se pudo eliminar el movimiento', e));
+      [ids.list].concat(ids.extraLists || []).forEach(listId => {
+        document.getElementById(listId).addEventListener('click', (ev)=>{
+          const btn = ev.target.closest('.gasto-delete');
+          if(!btn) return;
+          const confirmado = window.confirm('¿Estás seguro que desea eliminar este movimiento?');
+          if(!confirmado) return;
+          movimientosRef.doc(btn.dataset.id).delete()
+            .catch((e)=> console.error('No se pudo eliminar el movimiento', e));
+        });
       });
     }
 
@@ -1949,6 +2067,7 @@
     ahorrosController.initBackup();
     gastosController.initForm();
     gastosController.initBackup();
+    initGastosMesNav();
     negocioController.initForm();
     negocioController.initBackup();
     initProductosSync();
