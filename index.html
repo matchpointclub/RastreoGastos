@@ -261,7 +261,7 @@
     <p class="section-title" style="margin-bottom:14px;">Alertas de precio</p>
     <div class="alert-grid">
       <div class="threshold-group">
-        <div class="group-title oficial">Oficial</div>
+        <div class="group-title oficial">Oficial · precio de venta</div>
         <label>Avisar si baja de</label>
         <div class="fields">
           <input type="number" id="ofMin" placeholder="Ej. 1000">
@@ -272,7 +272,7 @@
         </div>
       </div>
       <div class="threshold-group">
-        <div class="group-title blue">Blue</div>
+        <div class="group-title blue">Blue · precio de venta</div>
         <label>Avisar si baja de</label>
         <div class="fields">
           <input type="number" id="blMin" placeholder="Ej. 1200">
@@ -290,7 +290,7 @@
         <input type="number" id="gapPct" placeholder="Ej. 5" min="0" step="0.5">
         <span class="gap-suffix">%</span>
       </div>
-      <p class="gap-help">Avisa en cualquier dirección: tanto si el oficial queda más alto como más bajo que el blue.</p>
+      <p class="gap-help">Avisa en cualquier dirección: tanto si el oficial queda más alto como más bajo que el blue. Se calcula con el precio de venta de ambos.</p>
     </div>
     <div class="actions">
       <button class="primary" id="saveThresholds">Guardar umbrales</button>
@@ -340,6 +340,7 @@
 
     <p class="section-title">Evolución</p>
     <div class="range-toggle" id="ahorrosRangeToggle">
+      <button data-range="30">30 días</button>
       <button data-range="60" class="active">60 días</button>
       <button data-range="all">Todo</button>
     </div>

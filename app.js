@@ -1359,6 +1359,7 @@
     const arsSeries = [];
     const usdSeries = [];
     const paletasPesosSeries = [];
+    const totalPesosSeries = []; // solo para el tooltip: no se dibuja como línea
     for(let i = 0; i < days; i++){
       const d = new Date(startDate);
       d.setDate(d.getDate() + i);
@@ -1382,8 +1383,10 @@
       const stockPesos = runningStockArs + runningStockUsd * rate;
       const cajaPesos = runningCajaArs + runningCajaUsd * rate;
       paletasPesosSeries.push(stockPesos + cajaPesos);
+      // Total del día en pesos: pesos ahorrados + dólares al blue de ese día + Paletas (caja + stock)
+      totalPesosSeries.push(runningArs + runningUsd * rate + stockPesos + cajaPesos);
     }
-    return { labels, arsSeries, usdSeries, paletasPesosSeries };
+    return { labels, arsSeries, usdSeries, paletasPesosSeries, totalPesosSeries };
   }
 
   function renderAhorrosChart(){
@@ -1440,12 +1443,18 @@
           legend:{ display:false },
           tooltip:{
             mode:'index', intersect:false,
+            footerMarginTop:8,
             callbacks:{
               label:(ctx)=>{
                 const v = ctx.parsed.y;
                 const esUsd = ctx.dataset.label.indexOf('dólares') !== -1;
                 const formatear = esUsd ? fmtUsd : fmt;
                 return ctx.dataset.label + ': ' + (v == null ? '—' : formatear(v));
+              },
+              footer:(items)=>{
+                if(!items.length) return '';
+                const total = series.totalPesosSeries[items[0].dataIndex];
+                return total == null ? '' : 'Total (en pesos): ' + fmt(total);
               },
             },
           },
